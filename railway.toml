@@ -1,31 +1,8 @@
-# ── Evolution API Service (Railway) ───────────────────────
-# NOT a code deployment — deploy as a Docker image service:
-#   Image: atendai/evolution-api:latest
-#
-# In Railway dashboard:
-#   1. New Service → Docker Image → atendai/evolution-api:latest
-#   2. Add the volume below (Volumes tab)
-#   3. Set environment variables (see below)
-
-[[volumes]]
-mountPath = "/evolution/instances"
-name      = "evolution-sessions"
+[build]
+buildCommand = "npm install && npx turbo build --filter=web"
 
 [deploy]
-numReplicas            = 1
-healthcheckPath        = "/"
-healthcheckTimeout     = 30
-restartPolicyType      = "ON_FAILURE"
+startCommand = "node apps/web/.next/standalone/server.js"
+numReplicas = 1
+restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 3
-
-# Environment variables to set in the Railway dashboard for this service:
-#   SERVER_URL              = https://<this-service>.railway.app
-#   AUTHENTICATION_TYPE     = apikey
-#   AUTHENTICATION_API_KEY  = <your-strong-key>   ← same as EVOLUTION_API_KEY elsewhere
-#   REDIS_ENABLED           = true
-#   REDIS_URI               = redis://default:<pass>@<redis>.railway.app:6379
-#   REDIS_PREFIX_KEY        = evolution
-#   DATABASE_ENABLED        = false
-#   DEL_INSTANCE            = false
-#   LOG_LEVEL               = ERROR
-#   CORS_ORIGIN             = *
