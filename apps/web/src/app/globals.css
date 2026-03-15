@@ -1,0 +1,75 @@
+@import url('https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600;700;800;900&family=Inter:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-base: #0F1117;
+  --bg-surface: #1A1D27;
+  --bg-elevated: #22253A;
+  --bg-hover: #2A2D3E;
+  --border: #2E3150;
+  --border-subtle: #1E2035;
+  --text-primary: #E8EAFF;
+  --text-secondary: #8B8FA8;
+  --text-muted: #555870;
+  --accent-teal: #00C4AA;
+  --accent-blue: #4A9EFF;
+  --accent-amber: #F59E0B;
+  --accent-red: #EF4444;
+  --accent-green: #10B981;
+  --accent-purple: #8B5CF6;
+  --sidebar-bg: #13161F;
+  --topbar-bg: #13161F;
+}
+
+html {
+  direction: rtl;
+}
+
+body {
+  background-color: var(--bg-base);
+  color: var(--text-primary);
+  font-family: 'Heebo', 'Inter', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Numbers and Latin characters use Inter */
+.font-numbers,
+[dir="rtl"] input[type="number"],
+[dir="rtl"] .tabular-nums {
+  font-family: 'Inter', sans-serif;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-base);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* Focus ring */
+*:focus-visible {
+  outline: 2px solid var(--accent-teal);
+  outline-offset: 2px;
+}
+
+/* Selection */
+::selection {
+  background-color: rgba(0, 196, 170, 0.3);
+  color: var(--text-primary);
+}

@@ -1,0 +1,28 @@
+{
+  "name": "sherlocked-erp",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Sherlocked Escape Room ERP — Booking & Operations System",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "lint": "turbo lint",
+    "type-check": "turbo type-check",
+    "dev:web": "turbo dev --filter=web",
+    "dev:api": "turbo dev --filter=api",
+    "dev:attendance": "turbo dev --filter=attendance",
+    "dev:whatsapp": "turbo dev --filter=whatsapp"
+  },
+  "devDependencies": {
+    "turbo": "^1.13.4",
+    "typescript": "^5.4.5"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  }
+}

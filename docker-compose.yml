@@ -1,0 +1,55 @@
+# ============================================================
+# SHERLOCKED ERP — Local Development
+# Provides: Evolution API (WhatsApp) + Redis
+#
+# Usage:
+#   docker compose up -d
+#   docker compose down
+#   docker compose logs -f evolution-api
+# ============================================================
+
+version: '3.8'
+
+services:
+
+  # ── Evolution API (WhatsApp via Baileys) ─────────────────
+  evolution-api:
+    image: atendai/evolution-api:latest
+    container_name: sherlocked-evolution
+    ports:
+      - "8080:8080"
+    environment:
+      SERVER_URL: "http://localhost:8080"
+      # Auth
+      AUTHENTICATION_TYPE: "apikey"
+      AUTHENTICATION_API_KEY: "sherlocked-dev-key"
+      # Redis (session + queue)
+      REDIS_ENABLED: "true"
+      REDIS_URI: "redis://redis:6379"
+      REDIS_PREFIX_KEY: "evolution"
+      # Storage — persist QR sessions in named volume
+      DATABASE_ENABLED: "false"
+      # Misc
+      DEL_INSTANCE: "false"
+      LOG_LEVEL: "ERROR"
+      CORS_ORIGIN: "*"
+    volumes:
+      - evolution_instances:/evolution/instances
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  # ── Redis ─────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: sherlocked-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+
+volumes:
+  evolution_instances:
+  redis_data:
