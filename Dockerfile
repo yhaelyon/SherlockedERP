@@ -1,6 +1,10 @@
 FROM node:20-alpine AS builder
 WORKDIR /app
 
+# Cache bust: change this value to force a full rebuild
+ARG CACHEBUST=2
+RUN echo "Cache bust: $CACHEBUST"
+
 COPY package*.json ./
 COPY turbo.json ./
 COPY packages ./packages
