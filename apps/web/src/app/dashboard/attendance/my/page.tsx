@@ -60,6 +60,7 @@ export default function AttendanceMyPage() {
   const [successMsg, setSuccessMsg] = useState('')
   const [branches, setBranches] = useState<Branch[]>([])
   const [selectedBranch, setSelectedBranch] = useState<Branch | null>(null)
+  const [bypassLocation, setBypassLocation] = useState(false)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
@@ -112,8 +113,8 @@ export default function AttendanceMyPage() {
     setLoadingMsg('מבדק מיקום...')
     const coords = await requestGeolocation()
 
-    // Step 2: if GPS available, check distance before calling API
-    if (coords) {
+    // Step 2: if GPS available, check distance before calling API (skip if test mode)
+    if (coords && !bypassLocation) {
       const dist = haversineDistance(coords.lat, coords.lng, VENUE_LAT, VENUE_LNG)
       if (dist > VENUE_RADIUS_METERS) {
         setError('אינך נמצא במיקום הסניף — יש להיות באתר כדי לדווח נוכחות')
@@ -279,6 +280,28 @@ export default function AttendanceMyPage() {
             ? 'המערכת תאמת את מיקומך אוטומטית'
             : 'המערכת תאמת את מיקומך לרישום יציאה'}
         </p>
+
+        {/* Test mode — bypass location check */}
+        <div className="flex items-center justify-center gap-2 mt-4">
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <div
+              onClick={() => setBypassLocation((v) => !v)}
+              className="w-8 h-4 rounded-full relative transition-colors"
+              style={{ background: bypassLocation ? '#F59E0B' : '#2A2D3E' }}
+            >
+              <div
+                className="absolute top-0.5 w-3 h-3 rounded-full transition-transform"
+                style={{
+                  background: '#fff',
+                  transform: bypassLocation ? 'translateX(17px)' : 'translateX(2px)',
+                }}
+              />
+            </div>
+            <span className="text-xs" style={{ color: bypassLocation ? '#F59E0B' : '#4A4D5E' }}>
+              מצב בדיקה (עקוף מיקום)
+            </span>
+          </label>
+        </div>
       </div>
 
       {/* Recent logs placeholder */}
