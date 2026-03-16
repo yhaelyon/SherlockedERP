@@ -16,10 +16,11 @@ RUN npx turbo build --filter=web
 FROM node:20-alpine
 WORKDIR /app
 
-# standalone preserves monorepo dir structure: server.js is at apps/web/server.js
 COPY --from=builder /app/apps/web/.next/standalone ./
-# static assets must sit next to server.js inside the monorepo path
 COPY --from=builder /app/apps/web/.next/static ./apps/web/.next/static
+
+# Debug: show standalone structure so we know exact server.js location
+RUN echo "=== standalone root ===" && ls -la /app && echo "=== apps/web ===" && ls -la /app/apps/web 2>/dev/null || echo "no apps/web dir"
 
 EXPOSE 3000
 ENV NODE_ENV=production
