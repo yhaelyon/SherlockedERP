@@ -23,6 +23,20 @@ type Status = 'out' | 'in'
 
 type Branch = { id: string; name: string }
 
+const VENUE_LAT = 31.99111
+const VENUE_LNG = 34.76331
+const VENUE_RADIUS_METERS = 150
+
+function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: number) {
+  const R = 6371000
+  const dLat = ((lat2 - lat1) * Math.PI) / 180
+  const dLng = ((lng2 - lng1) * Math.PI) / 180
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
+
 // Attempt to get GPS coordinates — resolves with coords or undefined if denied/unavailable
 function requestGeolocation(): Promise<{ lat: number; lng: number } | undefined> {
   return new Promise((resolve) => {
@@ -98,7 +112,18 @@ export default function AttendanceMyPage() {
     setLoadingMsg('מבדק מיקום...')
     const coords = await requestGeolocation()
 
-    // Step 2: send to API (with or without GPS — server will also check IP)
+    // Step 2: if GPS available, check distance before calling API
+    if (coords) {
+      const dist = haversineDistance(coords.lat, coords.lng, VENUE_LAT, VENUE_LNG)
+      if (dist > VENUE_RADIUS_METERS) {
+        setError('אינך נמצא במיקום הסניף — יש להיות באתר כדי לדווח נוכחות')
+        setLoadingMsg('')
+        setLoading(false)
+        return
+      }
+    }
+
+    // Step 3: send to API
     setLoadingMsg('מעבד...')
     const endpoint = status === 'out' ? '/clock-in' : '/clock-out'
 
