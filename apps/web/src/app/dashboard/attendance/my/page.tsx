@@ -63,7 +63,6 @@ export default function AttendanceMyPage() {
   const [bypassLocation, setBypassLocation] = useState(false)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
 
   // Fetch branches via internal API route (runtime env vars — no build-time baking needed)
   useEffect(() => {
@@ -124,12 +123,12 @@ export default function AttendanceMyPage() {
       }
     }
 
-    // Step 3: send to API
+    // Step 3: send to internal API
     setLoadingMsg('מעבד...')
-    const endpoint = status === 'out' ? '/clock-in' : '/clock-out'
+    const endpoint = status === 'out' ? '/api/attendance/clock-in' : '/api/attendance/clock-out'
 
     try {
-      const res = await fetch(`${apiUrl}/api/v1/attendance${endpoint}`, {
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -137,6 +136,7 @@ export default function AttendanceMyPage() {
           branch_id: selectedBranch.id,
           lat: coords?.lat,
           lng: coords?.lng,
+          bypass_location: bypassLocation,
         }),
       })
 
