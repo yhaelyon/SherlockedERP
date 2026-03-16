@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { createClient } from '@/lib/supabase'
 
 const HEBREW_DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת']
 const HEBREW_MONTHS = [
@@ -51,21 +50,16 @@ export default function AttendanceMyPage() {
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
 
-  // Fetch branches on mount — directly from Supabase (no API needed)
+  // Fetch branches via internal API route (runtime env vars — no build-time baking needed)
   useEffect(() => {
-    const supabase = createClient()
-    supabase
-      .from('branches')
-      .select('id, name')
-      .order('name')
-      .then(({ data, error: err }) => {
-        if (err || !data) {
-          setError('לא ניתן לטעון סניפים')
-          return
-        }
+    fetch('/api/branches')
+      .then((r) => r.json())
+      .then((data: Branch[]) => {
+        if (!Array.isArray(data)) { setError('לא ניתן לטעון סניפים'); return }
         setBranches(data)
         if (data.length === 1) setSelectedBranch(data[0])
       })
+      .catch(() => setError('לא ניתן לטעון סניפים'))
   }, [])
 
   // Clock tick
