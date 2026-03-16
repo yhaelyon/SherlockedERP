@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import { createClient } from '@/lib/supabase'
 
 const HEBREW_DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת']
 const HEBREW_MONTHS = [
@@ -50,16 +51,22 @@ export default function AttendanceMyPage() {
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
 
-  // Fetch branches on mount
+  // Fetch branches on mount — directly from Supabase (no API needed)
   useEffect(() => {
-    fetch(`${apiUrl}/api/v1/branches`)
-      .then((r) => r.json())
-      .then((data: Branch[]) => {
+    const supabase = createClient()
+    supabase
+      .from('branches')
+      .select('id, name')
+      .order('name')
+      .then(({ data, error: err }) => {
+        if (err || !data) {
+          setError('לא ניתן לטעון סניפים')
+          return
+        }
         setBranches(data)
         if (data.length === 1) setSelectedBranch(data[0])
       })
-      .catch(() => {})
-  }, [apiUrl])
+  }, [])
 
   // Clock tick
   useEffect(() => {
@@ -178,31 +185,37 @@ export default function AttendanceMyPage() {
         </div>
       </div>
 
-      {/* Branch selector */}
-      {branches.length > 1 && (
-        <div className="mb-4 flex gap-3">
-          {branches.map((b) => (
-            <button
-              key={b.id}
-              onClick={() => setSelectedBranch(b)}
-              className="flex-1 py-3 rounded-xl text-sm font-bold transition-all"
-              style={{
-                background: selectedBranch?.id === b.id ? 'rgba(0,196,170,0.15)' : '#1A1D27',
-                border: `1px solid ${selectedBranch?.id === b.id ? '#00C4AA' : '#2A2D3E'}`,
-                color: selectedBranch?.id === b.id ? '#00C4AA' : '#8B8FA8',
-              }}
-            >
-              {b.name}
-            </button>
-          ))}
-        </div>
-      )}
-
       {/* Action card */}
       <div
         className="rounded-2xl p-6"
         style={{ background: '#1A1D27', border: '1px solid #2A2D3E' }}
       >
+        {/* Branch selector — inside card, above button */}
+        {branches.length === 0 && !error && (
+          <div className="mb-4 text-center text-sm text-[#8B8FA8]">טוען סניפים...</div>
+        )}
+        {branches.length > 1 && (
+          <div className="mb-4">
+            <div className="text-xs text-[#8B8FA8] mb-2 text-right">בחר סניף</div>
+            <div className="flex gap-3">
+              {branches.map((b) => (
+                <button
+                  key={b.id}
+                  onClick={() => setSelectedBranch(b)}
+                  className="flex-1 py-3 rounded-xl text-sm font-bold transition-all"
+                  style={{
+                    background: selectedBranch?.id === b.id ? 'rgba(0,196,170,0.15)' : '#0F1117',
+                    border: `1px solid ${selectedBranch?.id === b.id ? '#00C4AA' : '#2A2D3E'}`,
+                    color: selectedBranch?.id === b.id ? '#00C4AA' : '#8B8FA8',
+                  }}
+                >
+                  {b.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {error && (
           <div
             className="text-sm mb-4 px-3 py-2 rounded-lg"
