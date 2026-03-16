@@ -24,10 +24,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'user_id ו-branch_id נדרשים' }, { status: 400 })
   }
 
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL ?? SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY ?? SUPABASE_SERVICE_KEY
-  )
+  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
   // Location check (skipped when bypass_location=true for test mode)
   if (!bypass_location) {
