@@ -1,6 +1,9 @@
 FROM node:20-alpine AS builder
 WORKDIR /app
 
+ARG CACHEBUST=3
+RUN echo "bust=$CACHEBUST"
+
 COPY package*.json ./
 COPY turbo.json ./
 COPY packages ./packages
