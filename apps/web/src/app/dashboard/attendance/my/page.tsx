@@ -129,6 +129,19 @@ export default function AttendanceMyPage() {
   const [ipTesting, setIpTesting] = useState(false)
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const accessTokenRef = useRef<string | null>(null)
+
+  // Store the Supabase access token on mount so it's ready synchronously in handleSubmit
+  useEffect(() => {
+    const supabase = createClient()
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      accessTokenRef.current = session?.access_token ?? null
+    })
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      accessTokenRef.current = session?.access_token ?? null
+    })
+    return () => subscription.unsubscribe()
+  }, [])
 
   const addLog = useCallback((entry: Omit<LogEntry, 'id' | 'ts'>) => {
     setLog((prev) => [{ ...entry, id: ++logIdCounter, ts: new Date() }, ...prev])
@@ -204,10 +217,7 @@ export default function AttendanceMyPage() {
 
     setLoadingMsg('מעבד...')
     const endpoint = status === 'out' ? '/api/attendance/clock-in' : '/api/attendance/clock-out'
-
-    const supabase = createClient()
-    const { data: { session } } = await supabase.auth.getSession()
-    const accessToken = session?.access_token
+    const accessToken = accessTokenRef.current
 
     try {
       const res = await fetch(endpoint, {
