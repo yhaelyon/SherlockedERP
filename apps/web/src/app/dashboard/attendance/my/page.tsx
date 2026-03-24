@@ -133,14 +133,9 @@ export default function AttendanceMyPage() {
 
   // Store the Supabase access token on mount so it's ready synchronously in handleSubmit
   useEffect(() => {
-    const supabase = createClient()
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    createClient().auth.getSession().then(({ data: { session } }) => {
       accessTokenRef.current = session?.access_token ?? null
-    })
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      accessTokenRef.current = session?.access_token ?? null
-    })
-    return () => subscription.unsubscribe()
+    }).catch(() => {})
   }, [])
 
   const addLog = useCallback((entry: Omit<LogEntry, 'id' | 'ts'>) => {
