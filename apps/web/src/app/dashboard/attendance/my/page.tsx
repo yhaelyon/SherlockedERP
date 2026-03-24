@@ -153,16 +153,23 @@ export default function AttendanceMyPage() {
       .catch(() => {})
   }, [])
 
-  useEffect(() => {
+  const [branchesError, setBranchesError] = useState('')
+
+  function loadBranches() {
+    setBranchesError('')
     fetch('/api/branches')
       .then((r) => r.json())
-      .then((data: Branch[]) => {
-        if (!Array.isArray(data)) { setError('לא ניתן לטעון סניפים'); return }
+      .then((data) => {
+        if (!Array.isArray(data)) {
+          setBranchesError(data?.error ? `שגיאה: ${data.error}` : 'לא ניתן לטעון סניפים')
+          return
+        }
         setBranches(data)
-        if (data.length === 1) setSelectedBranch(data[0])
       })
-      .catch(() => setError('לא ניתן לטעון סניפים'))
-  }, [])
+      .catch(() => setBranchesError('לא ניתן להתחבר — בדוק חיבור'))
+  }
+
+  useEffect(() => { loadBranches() }, [])
 
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000)
@@ -433,7 +440,13 @@ export default function AttendanceMyPage() {
       {/* ── Action card ── */}
       <div className="rounded-2xl p-6 mb-5" style={{ background: '#1A1D27', border: '1px solid #2A2D3E' }}>
         {/* Branch selector */}
-        {branches.length === 0 && !error && <div className="mb-4 text-center text-sm text-[#8B8FA8]">טוען סניפים...</div>}
+        {branches.length === 0 && !branchesError && <div className="mb-4 text-center text-sm text-[#8B8FA8]">טוען סניפים...</div>}
+        {branchesError && (
+          <div className="mb-4 px-3 py-2 rounded-lg flex items-center justify-between" style={{ background: 'rgba(239,68,68,0.1)', color: '#F87171' }}>
+            <span className="text-xs">{branchesError}</span>
+            <button onClick={loadBranches} className="text-xs px-2 py-1 rounded-lg mr-2" style={{ background: 'rgba(239,68,68,0.2)', color: '#F87171' }}>נסה שוב</button>
+          </div>
+        )}
         {allBranches.length > 0 && (
           <div className="mb-4">
             <div className="text-xs text-[#8B8FA8] mb-2 text-right">בחר סניף</div>

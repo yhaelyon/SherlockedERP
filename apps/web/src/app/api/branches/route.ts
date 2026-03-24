@@ -4,14 +4,11 @@ import { NextResponse } from 'next/server'
 export const dynamic = 'force-dynamic'
 
 const SUPABASE_URL = 'https://rqjxemirswoxxsmjvfrc.supabase.co'
-const SUPABASE_ANON_KEY =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJxanhlbWlyc3dveHhzbWp2ZnJjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM1MjEyMDgsImV4cCI6MjA4OTA5NzIwOH0.NU3ZIOdxDRcZSYAax3t88fiaUBzpcaNSilC9tULqfug'
+const SUPABASE_SERVICE_KEY =
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJxanhlbWlyc3dveHhzbWp2ZnJjIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MzUyMTIwOCwiZXhwIjoyMDg5MDk3MjA4fQ.lQrfVibfq3gMwcTNMhypPVpozHyTHU_Kb8po5ooFPds'
 
 export async function GET() {
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL ?? SUPABASE_URL,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? SUPABASE_ANON_KEY
-  )
+  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
   const { data, error } = await supabase
     .from('branches')
