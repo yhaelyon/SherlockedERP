@@ -25,32 +25,53 @@ export async function POST(req: NextRequest) {
   }
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+  let verification_method: 'gps' | 'ip' | 'bypass' = 'bypass'
 
   // Location check (skipped when bypass_location=true for test mode)
   if (!bypass_location) {
-    const { data: branch } = await supabase
+    const { data: branch, error: branchErr } = await supabase
       .from('branches')
       .select('venue_lat, venue_lng, venue_radius_meters, venue_static_ip')
       .eq('id', branch_id)
       .single()
 
+    if (branchErr) {
+      return NextResponse.json(
+        { error: `שגיאת DB בטעינת סניף: ${branchErr.message}` },
+        { status: 500 }
+      )
+    }
+
     if (!branch) {
       return NextResponse.json({ error: 'סניף לא נמצא' }, { status: 404 })
     }
 
+    // 1. IP check
     const forwarded = req.headers.get('x-forwarded-for')
     const clientIp = forwarded ? forwarded.split(',')[0].trim() : ''
     const ipAllowed = branch.venue_static_ip && clientIp === branch.venue_static_ip
 
-    if (!ipAllowed) {
+    if (ipAllowed) {
+      verification_method = 'ip'
+    } else {
+      // 2. GPS check
       if (lat !== undefined && lng !== undefined && branch.venue_lat != null) {
         const dist = haversineDistance(lat, lng, branch.venue_lat, branch.venue_lng)
         if (dist > (branch.venue_radius_meters ?? 150)) {
           return NextResponse.json(
-            { error: 'לא ניתן לרשום נוכחות — ודא שאתה במתחם' },
+            {
+              error: `אינך נמצא במיקום הסניף (מרחק: ${Math.round(dist)}מ', מותר: ${branch.venue_radius_meters ?? 150}מ')`,
+              distance_meters: Math.round(dist),
+            },
             { status: 403 }
           )
         }
+        verification_method = 'gps'
+      } else if (branch.venue_lat == null && !branch.venue_static_ip) {
+        return NextResponse.json(
+          { error: 'לא הוגדר מיקום לסניף — פנה למנהל להגדרת קואורדינטות GPS או IP' },
+          { status: 403 }
+        )
       } else {
         return NextResponse.json(
           { error: 'לא ניתן לאמת מיקום — אפשר גישה למיקום ונסה שוב' },
@@ -64,7 +85,7 @@ export async function POST(req: NextRequest) {
 
   const { data: log, error: findErr } = await supabase
     .from('attendance_logs')
-    .select('id, clock_in')
+    .select('id')
     .eq('user_id', user_id)
     .is('clock_out', null)
     .maybeSingle()
@@ -73,15 +94,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'לא נמצא רישום כניסה פתוח' }, { status: 404 })
   }
 
-  const totalMinutes = Math.round(
-    (clockOut.getTime() - new Date(log.clock_in).getTime()) / 60000
-  )
-
   const { data, error } = await supabase
     .from('attendance_logs')
     .update({
       clock_out: clockOut.toISOString(),
-      total_minutes: totalMinutes,
       wifi_token_verified: true,
     })
     .eq('id', log.id)
@@ -89,5 +105,5 @@ export async function POST(req: NextRequest) {
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data)
+  return NextResponse.json({ ...data, verification_method })
 }
