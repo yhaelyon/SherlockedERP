@@ -1,4 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
+import { createServerClient } from '@supabase/ssr'
+import { cookies } from 'next/headers'
 import { NextRequest, NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
@@ -6,6 +8,7 @@ export const dynamic = 'force-dynamic'
 const SUPABASE_URL = 'https://rqjxemirswoxxsmjvfrc.supabase.co'
 const SUPABASE_SERVICE_KEY =
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJxanhlbWlyc3dveHhzbWp2ZnJjIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MzUyMTIwOCwiZXhwIjoyMDg5MDk3MjA4fQ.lQrfVibfq3gMwcTNMhypPVpozHyTHU_Kb8po5ooFPds'
+const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? ''
 
 function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: number) {
   const R = 6371000
@@ -18,11 +21,22 @@ function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: numbe
 }
 
 export async function POST(req: NextRequest) {
-  const { user_id, branch_id, lat, lng, bypass_location } = await req.json()
+  const { branch_id, lat, lng, bypass_location } = await req.json()
 
-  if (!user_id || !branch_id) {
-    return NextResponse.json({ error: 'user_id ו-branch_id נדרשים' }, { status: 400 })
+  if (!branch_id) {
+    return NextResponse.json({ error: 'branch_id נדרש' }, { status: 400 })
   }
+
+  // Get the authenticated user's UUID from the server-side session
+  const cookieStore = cookies()
+  const supabaseAuth = createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    cookies: { get: (name) => cookieStore.get(name)?.value },
+  })
+  const { data: { user: authUser } } = await supabaseAuth.auth.getUser()
+  if (!authUser) {
+    return NextResponse.json({ error: 'לא מחובר' }, { status: 401 })
+  }
+  const user_id = authUser.id
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
