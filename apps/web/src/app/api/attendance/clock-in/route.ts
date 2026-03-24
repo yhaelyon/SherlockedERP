@@ -6,7 +6,6 @@ export const dynamic = 'force-dynamic'
 const SUPABASE_URL = 'https://rqjxemirswoxxsmjvfrc.supabase.co'
 const SUPABASE_SERVICE_KEY =
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJxanhlbWlyc3dveHhzbWp2ZnJjIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MzUyMTIwOCwiZXhwIjoyMDg5MDk3MjA4fQ.lQrfVibfq3gMwcTNMhypPVpozHyTHU_Kb8po5ooFPds'
-
 function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: number) {
   const R = 6371000
   const dLat = ((lat2 - lat1) * Math.PI) / 180
@@ -18,24 +17,11 @@ function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: numbe
 }
 
 export async function POST(req: NextRequest) {
-  const { branch_id, lat, lng, bypass_location } = await req.json()
+  const { user_id, branch_id, lat, lng, bypass_location } = await req.json()
 
-  if (!branch_id) {
-    return NextResponse.json({ error: 'branch_id נדרש' }, { status: 400 })
+  if (!user_id || !branch_id) {
+    return NextResponse.json({ error: 'user_id ו-branch_id נדרשים' }, { status: 400 })
   }
-
-  // Get the authenticated user's UUID from the Bearer token
-  const authHeader = req.headers.get('Authorization')
-  const jwt = authHeader?.replace('Bearer ', '')
-  if (!jwt) {
-    return NextResponse.json({ error: 'לא מחובר' }, { status: 401 })
-  }
-  const supabaseAuth = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-  const { data: { user: authUser } } = await supabaseAuth.auth.getUser(jwt)
-  if (!authUser) {
-    return NextResponse.json({ error: 'לא מחובר' }, { status: 401 })
-  }
-  const user_id = authUser.id
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 

@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useAuth } from '@/lib/auth'
-import { createClient } from '@/lib/supabase'
 
 const HEBREW_DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת']
 const HEBREW_MONTHS = [
@@ -129,14 +128,6 @@ export default function AttendanceMyPage() {
   const [ipTesting, setIpTesting] = useState(false)
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const accessTokenRef = useRef<string | null>(null)
-
-  // Store the Supabase access token on mount so it's ready synchronously in handleSubmit
-  useEffect(() => {
-    createClient().auth.getSession().then(({ data: { session } }) => {
-      accessTokenRef.current = session?.access_token ?? null
-    }).catch(() => {})
-  }, [])
 
   const addLog = useCallback((entry: Omit<LogEntry, 'id' | 'ts'>) => {
     setLog((prev) => [{ ...entry, id: ++logIdCounter, ts: new Date() }, ...prev])
@@ -212,16 +203,13 @@ export default function AttendanceMyPage() {
 
     setLoadingMsg('מעבד...')
     const endpoint = status === 'out' ? '/api/attendance/clock-in' : '/api/attendance/clock-out'
-    const accessToken = accessTokenRef.current
 
     try {
       const res = await fetch(endpoint, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {}),
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          user_id: user?.id,
           branch_id: selectedBranch.id,
           lat: coords?.lat,
           lng: coords?.lng,
