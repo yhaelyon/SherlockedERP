@@ -9,14 +9,6 @@ const HEBREW_MONTHS = [
   'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר',
 ]
 
-// Test location: 32°00'37.7"N 34°46'04.2"E
-const TEST_LOCATION_BRANCH = {
-  id: '__test_location__',
-  name: 'בדיקה GPS',
-  lat: 32.010472,
-  lng: 34.767833,
-  radius: 150,
-}
 
 function formatTime(date: Date) {
   return date.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
@@ -191,8 +183,6 @@ export default function AttendanceMyPage() {
   const hebrewDay = HEBREW_DAYS[now.getDay()]
   const hebrewDate = `יום ${hebrewDay}, ${now.getDate()} ב${HEBREW_MONTHS[now.getMonth()]} ${now.getFullYear()}`
 
-  const allBranches: Branch[] = [...branches, TEST_LOCATION_BRANCH]
-
   async function handleSubmit() {
     if (!selectedBranch) { setError('יש לבחור סניף'); return }
 
@@ -211,42 +201,6 @@ export default function AttendanceMyPage() {
 
     const coords = geoResult.ok ? { lat: geoResult.lat, lng: geoResult.lng } : undefined
 
-    // Test location branch — client-side check only, no DB write
-    if (selectedBranch.id === '__test_location__') {
-      if (!bypassLocation) {
-        if (!coords) {
-          const msg = 'לא התקבלו קואורדינטות GPS'
-          setError(msg)
-          addLog({ tag: 'שגיאה', ok: false, branch: selectedBranch.name, lines: [msg] })
-          setLoadingMsg(''); setLoading(false); return
-        }
-        const dist = haversineDistance(coords.lat, coords.lng, TEST_LOCATION_BRANCH.lat, TEST_LOCATION_BRANCH.lng)
-        const allowed = dist <= TEST_LOCATION_BRANCH.radius
-        addLog({
-          tag: 'מיקום-בדיקה',
-          ok: allowed,
-          branch: selectedBranch.name,
-          lines: [
-            `GPS שלך: ${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)}`,
-            `מטרה: ${TEST_LOCATION_BRANCH.lat}, ${TEST_LOCATION_BRANCH.lng}`,
-            `מרחק: ${Math.round(dist)}מ' (מותר: ${TEST_LOCATION_BRANCH.radius}מ')`,
-            `IP נוכחי: ${currentIp || 'לא זוהה'}`,
-            allowed ? '✅ מיקום תקין' : '❌ מיקום מחוץ לתחום',
-          ],
-        })
-        if (!allowed) {
-          setError(`מחוץ לתחום — מרחק: ${Math.round(dist)}מ', מותר: ${TEST_LOCATION_BRANCH.radius}מ'`)
-        } else {
-          setSuccessMsg(`בדיקת GPS עברה ✓ (מרחק: ${Math.round(dist)}מ')`)
-        }
-      } else {
-        addLog({ tag: 'מיקום-בדיקה', ok: true, branch: selectedBranch.name, lines: ['bypass מופעל — דילוג על בדיקת מיקום', `IP נוכחי: ${currentIp || 'לא זוהה'}`] })
-        setSuccessMsg('בדיקה עברה (bypass מופעל)')
-      }
-      setLoadingMsg(''); setLoading(false); return
-    }
-
-    // Real branch — clock in/out
     setLoadingMsg('מעבד...')
     const endpoint = status === 'out' ? '/api/attendance/clock-in' : '/api/attendance/clock-out'
 
@@ -266,6 +220,11 @@ export default function AttendanceMyPage() {
       const data = await res.json()
       const action = status === 'out' ? 'כניסה' : 'יציאה'
 
+      // Build log lines from server checks array
+      const checksLines: string[] = Array.isArray(data.checks)
+        ? data.checks.map((c: { step: string; result: string }) => `[${c.step}] ${c.result}`)
+        : []
+
       if (!res.ok) {
         setError(data.error ?? 'שגיאה בלתי צפויה')
         addLog({
@@ -274,9 +233,10 @@ export default function AttendanceMyPage() {
           branch: selectedBranch.name,
           lines: [
             `פעולה: ${action}`,
-            `שגיאה: ${data.error ?? 'לא ידועה'}`,
-            coords ? `GPS: ${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)}` : 'GPS: לא זמין',
+            coords ? `GPS שלך: ${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)}` : 'GPS: לא זמין',
             `IP: ${currentIp || 'לא זוהה'}`,
+            ...checksLines,
+            `❌ ${data.error ?? 'שגיאה לא ידועה'}`,
           ],
         })
       } else {
@@ -287,11 +247,11 @@ export default function AttendanceMyPage() {
           ok: true,
           branch: selectedBranch.name,
           lines: [
-            `שיטת אימות: ${methodLabel}`,
-            coords ? `GPS: ${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)}` : 'GPS: לא זמין',
+            coords ? `GPS שלך: ${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)}` : 'GPS: לא זמין',
             `IP: ${currentIp || 'לא זוהה'}`,
-            data.distance_meters !== undefined ? `מרחק: ${data.distance_meters}מ'` : '',
-          ].filter(Boolean),
+            ...checksLines,
+            `✅ אומת לפי: ${methodLabel}`,
+          ],
         })
         if (status === 'out') {
           setStatus('in'); setClockInTime(new Date())
@@ -310,8 +270,8 @@ export default function AttendanceMyPage() {
   }
 
   async function handleIpTest() {
-    if (!selectedBranch || selectedBranch.id === '__test_location__') {
-      addLog({ tag: 'שגיאה', ok: false, branch: '—', lines: ['יש לבחור סניף אמיתי לבדיקת IP'] })
+    if (!selectedBranch) {
+      addLog({ tag: 'שגיאה', ok: false, branch: '—', lines: ['יש לבחור סניף'] })
       return
     }
     setIpTesting(true)
@@ -359,9 +319,7 @@ export default function AttendanceMyPage() {
       return
     }
 
-    const mode = branchForTest.id === '__test_location__' ? 'test_location' : 'gps'
-    const body: Record<string, unknown> = { mode }
-    if (branchForTest.id !== '__test_location__') body.branch_id = branchForTest.id
+    const body: Record<string, unknown> = { mode: 'gps', branch_id: branchForTest.id }
     if (coords) { body.lat = coords.lat; body.lng = coords.lng }
 
     try {
@@ -447,12 +405,11 @@ export default function AttendanceMyPage() {
             <button onClick={loadBranches} className="text-xs px-2 py-1 rounded-lg mr-2" style={{ background: 'rgba(239,68,68,0.2)', color: '#F87171' }}>נסה שוב</button>
           </div>
         )}
-        {allBranches.length > 0 && (
+        {branches.length > 0 && (
           <div className="mb-4">
             <div className="text-xs text-[#8B8FA8] mb-2 text-right">בחר סניף</div>
             <div className="flex gap-2 flex-wrap">
-              {allBranches.map((b) => {
-                const isTest = b.id === '__test_location__'
+              {branches.map((b) => {
                 const isSel = selectedBranch?.id === b.id
                 return (
                   <button
@@ -460,13 +417,12 @@ export default function AttendanceMyPage() {
                     onClick={() => setSelectedBranch(b)}
                     className="flex-1 py-3 rounded-xl text-sm font-bold transition-all min-w-[80px]"
                     style={{
-                      background: isSel ? (isTest ? 'rgba(245,158,11,0.15)' : 'rgba(0,196,170,0.15)') : '#0F1117',
-                      border: `1px solid ${isSel ? (isTest ? '#F59E0B' : '#00C4AA') : '#2A2D3E'}`,
-                      color: isSel ? (isTest ? '#F59E0B' : '#00C4AA') : '#8B8FA8',
+                      background: isSel ? 'rgba(0,196,170,0.15)' : '#0F1117',
+                      border: `1px solid ${isSel ? '#00C4AA' : '#2A2D3E'}`,
+                      color: isSel ? '#00C4AA' : '#8B8FA8',
                     }}
                   >
                     {b.name}
-                    {isTest && <div className="text-[10px] opacity-60 font-normal mt-0.5">32.010°N 34.768°E</div>}
                   </button>
                 )
               })}
@@ -486,16 +442,16 @@ export default function AttendanceMyPage() {
           disabled={loading}
           className="w-full py-5 rounded-xl text-lg font-bold transition-all"
           style={{
-            background: loading ? '#2A2D3E' : selectedBranch?.id === '__test_location__' ? '#78350F' : status === 'out' ? '#16A34A' : '#EA580C',
+            background: loading ? '#2A2D3E' : status === 'out' ? '#16A34A' : '#EA580C',
             color: loading ? '#4A4D5E' : '#FFFFFF',
             cursor: loading ? 'not-allowed' : 'pointer',
           }}
         >
-          {loading ? (loadingMsg || 'מעבד...') : selectedBranch?.id === '__test_location__' ? 'בדוק מיקום GPS' : status === 'out' ? 'כניסה למשמרת' : 'יציאה ממשמרת'}
+          {loading ? (loadingMsg || 'מעבד...') : status === 'out' ? 'כניסה למשמרת' : 'יציאה ממשמרת'}
         </button>
 
         <p className="text-center text-xs text-[#8B8FA8] mt-3">
-          {selectedBranch?.id === '__test_location__' ? 'בדיקה בלבד — לא נרשמת נוכחות' : status === 'out' ? 'המערכת תאמת את מיקומך אוטומטית' : 'המערכת תאמת את מיקומך לרישום יציאה'}
+          {status === 'out' ? 'המערכת תאמת מיקום GPS ← IP לפי הסדר' : 'המערכת תאמת מיקומך לרישום יציאה'}
         </p>
 
         {/* Bypass toggle */}

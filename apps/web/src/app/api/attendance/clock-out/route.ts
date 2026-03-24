@@ -24,10 +24,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'user_id ו-branch_id נדרשים' }, { status: 400 })
   }
 
-  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-  let verification_method: 'gps' | 'ip' | 'bypass' = 'bypass'
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL ?? SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_ROLE_KEY ?? SUPABASE_SERVICE_KEY
+  )
 
-  // Location check (skipped when bypass_location=true for test mode)
+  let verification_method: 'gps' | 'ip' | 'bypass' = 'bypass'
+  const checks: { step: string; result: string; ok: boolean }[] = []
+
   if (!bypass_location) {
     const { data: branch, error: branchErr } = await supabase
       .from('branches')
@@ -37,51 +41,62 @@ export async function POST(req: NextRequest) {
 
     if (branchErr) {
       return NextResponse.json(
-        { error: `שגיאת DB בטעינת סניף: ${branchErr.message}` },
+        { error: `שגיאת DB בטעינת סניף: ${branchErr.message}`, checks },
         { status: 500 }
       )
     }
-
     if (!branch) {
-      return NextResponse.json({ error: 'סניף לא נמצא' }, { status: 404 })
+      return NextResponse.json({ error: 'סניף לא נמצא', checks }, { status: 404 })
     }
 
-    // 1. IP check
     const forwarded = req.headers.get('x-forwarded-for')
     const clientIp = forwarded ? forwarded.split(',')[0].trim() : ''
-    const ipAllowed = branch.venue_static_ip && clientIp === branch.venue_static_ip
+    const radius = branch.venue_radius_meters ?? 150
 
-    if (ipAllowed) {
-      verification_method = 'ip'
+    // ── Step 1: GPS check ──────────────────────────────────────
+    if (lat !== undefined && lng !== undefined && branch.venue_lat != null) {
+      const dist = Math.round(haversineDistance(lat, lng, branch.venue_lat, branch.venue_lng))
+      const gpsOk = dist <= radius
+      checks.push({
+        step: 'GPS',
+        result: gpsOk
+          ? `✅ מרחק ${dist}מ' — בתוך תחום (${radius}מ')`
+          : `❌ מרחק ${dist}מ' — מחוץ לתחום (${radius}מ')`,
+        ok: gpsOk,
+      })
+      if (gpsOk) verification_method = 'gps'
+    } else if (branch.venue_lat == null) {
+      checks.push({ step: 'GPS', result: '⚠️ לא הוגדרו קואורדינטות לסניף', ok: false })
     } else {
-      // 2. GPS check
-      if (lat !== undefined && lng !== undefined && branch.venue_lat != null) {
-        const dist = haversineDistance(lat, lng, branch.venue_lat, branch.venue_lng)
-        if (dist > (branch.venue_radius_meters ?? 150)) {
-          return NextResponse.json(
-            {
-              error: `אינך נמצא במיקום הסניף (מרחק: ${Math.round(dist)}מ', מותר: ${branch.venue_radius_meters ?? 150}מ')`,
-              distance_meters: Math.round(dist),
-            },
-            { status: 403 }
-          )
-        }
-        verification_method = 'gps'
-      } else if (branch.venue_lat == null && !branch.venue_static_ip) {
-        return NextResponse.json(
-          { error: 'לא הוגדר מיקום לסניף — פנה למנהל להגדרת קואורדינטות GPS או IP' },
-          { status: 403 }
-        )
+      checks.push({ step: 'GPS', result: '⚠️ לא התקבל מיקום מהדפדפן', ok: false })
+    }
+
+    // ── Step 2: IP check (fallback) ────────────────────────────
+    if (verification_method !== 'gps') {
+      if (branch.venue_static_ip) {
+        const ipOk = clientIp === branch.venue_static_ip
+        checks.push({
+          step: 'IP',
+          result: ipOk
+            ? `✅ IP תואם (${clientIp})`
+            : `❌ IP לא תואם — שלך: ${clientIp || 'לא זוהה'} | נדרש: ${branch.venue_static_ip}`,
+          ok: ipOk,
+        })
+        if (ipOk) verification_method = 'ip'
       } else {
-        return NextResponse.json(
-          { error: 'לא ניתן לאמת מיקום — אפשר גישה למיקום ונסה שוב' },
-          { status: 403 }
-        )
+        checks.push({ step: 'IP', result: '⚠️ לא הוגדרה כתובת IP קבועה לסניף', ok: false })
       }
     }
-  }
 
-  const clockOut = new Date()
+    if (verification_method === 'bypass') {
+      return NextResponse.json(
+        { error: 'לא ניתן לאמת מיקום — GPS ו-IP נכשלו', checks },
+        { status: 403 }
+      )
+    }
+  } else {
+    checks.push({ step: 'bypass', result: '⚡ מצב בדיקה — בדיקת מיקום עקופה', ok: true })
+  }
 
   const { data: log, error: findErr } = await supabase
     .from('attendance_logs')
@@ -91,19 +106,16 @@ export async function POST(req: NextRequest) {
     .maybeSingle()
 
   if (findErr || !log) {
-    return NextResponse.json({ error: 'לא נמצא רישום כניסה פתוח' }, { status: 404 })
+    return NextResponse.json({ error: 'לא נמצא רישום כניסה פתוח', checks }, { status: 404 })
   }
 
   const { data, error } = await supabase
     .from('attendance_logs')
-    .update({
-      clock_out: clockOut.toISOString(),
-      wifi_token_verified: true,
-    })
+    .update({ clock_out: new Date().toISOString(), wifi_token_verified: true })
     .eq('id', log.id)
     .select()
     .single()
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ ...data, verification_method })
+  if (error) return NextResponse.json({ error: error.message, checks }, { status: 500 })
+  return NextResponse.json({ ...data, verification_method, checks })
 }
