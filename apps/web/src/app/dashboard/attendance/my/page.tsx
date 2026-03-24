@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useAuth } from '@/lib/auth'
+import { createClient } from '@/lib/supabase'
 
 const HEBREW_DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת']
 const HEBREW_MONTHS = [
@@ -204,12 +205,18 @@ export default function AttendanceMyPage() {
     setLoadingMsg('מעבד...')
     const endpoint = status === 'out' ? '/api/attendance/clock-in' : '/api/attendance/clock-out'
 
+    const supabase = createClient()
+    const { data: { session } } = await supabase.auth.getSession()
+    const accessToken = session?.access_token
+
     try {
       const res = await fetch(endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {}),
+        },
         body: JSON.stringify({
-          user_id: user?.id,
           branch_id: selectedBranch.id,
           lat: coords?.lat,
           lng: coords?.lng,
