@@ -8,7 +8,7 @@ const SUPABASE_SERVICE_KEY =
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJxanhlbWlyc3dveHhzbWp2ZnJjIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MzUyMTIwOCwiZXhwIjoyMDg5MDk3MjA4fQ.lQrfVibfq3gMwcTNMhypPVpozHyTHU_Kb8po5ooFPds'
 
 // Test location coordinates: 32°00'37.7"N 34°46'04.2"E
-export const TEST_LOCATION = { lat: 32.010472, lng: 34.767833, radius: 150 }
+const TEST_LOCATION = { lat: 32.010472, lng: 34.767833, radius: 150 }
 
 function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: number) {
   const R = 6371000
