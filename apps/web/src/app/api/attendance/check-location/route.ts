@@ -27,21 +27,31 @@ function getClientIp(req: NextRequest): string {
 }
 
 // POST /api/attendance/check-location
-// Used for testing only — does NOT create attendance records
-// Body: { branch_id?: string, lat?: number, lng?: number, mode: 'gps' | 'ip' | 'test_location' }
+// Body: {
+//   mode: 'gps' | 'ip' | 'test_location' | 'my_ip'
+//   branch_id?: string
+//   lat?: number
+//   lng?: number
+//   test_ip?: string   // test arbitrary IP against branch (admin testing)
+// }
 export async function POST(req: NextRequest) {
-  const { branch_id, lat, lng, mode } = await req.json()
+  const { mode, branch_id, lat, lng, test_ip } = await req.json()
   const clientIp = getClientIp(req)
 
-  // Mode: test_location — check GPS against the hardcoded test coordinates
-  if (mode === 'test_location' || branch_id === '__test_location__') {
+  // mode: my_ip — just return the detected IP
+  if (mode === 'my_ip') {
+    return NextResponse.json({ client_ip: clientIp })
+  }
+
+  // mode: test_location — check GPS against hardcoded test coordinates
+  if (mode === 'test_location') {
     if (lat === undefined || lng === undefined) {
       return NextResponse.json({
         allowed: false,
         method: 'gps',
         client_ip: clientIp,
-        target: TEST_LOCATION,
-        error: 'לא התקבלו קואורדינטות GPS — אפשר גישה למיקום בדפדפן',
+        target_coords: TEST_LOCATION,
+        error: 'לא התקבלו קואורדינטות GPS',
       })
     }
     const dist = haversineDistance(lat, lng, TEST_LOCATION.lat, TEST_LOCATION.lng)
@@ -51,57 +61,14 @@ export async function POST(req: NextRequest) {
       distance_meters: Math.round(dist),
       radius_meters: TEST_LOCATION.radius,
       your_coords: { lat, lng },
-      target_coords: TEST_LOCATION,
+      target_coords: { lat: TEST_LOCATION.lat, lng: TEST_LOCATION.lng },
       client_ip: clientIp,
     })
   }
 
-  // Mode: ip only — test IP against a branch
-  if (mode === 'ip') {
-    if (!branch_id) {
-      return NextResponse.json({
-        allowed: false,
-        method: 'ip',
-        client_ip: clientIp,
-        error: 'נדרש branch_id לבדיקת IP',
-      })
-    }
-
-    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-    const { data: branch, error: branchErr } = await supabase
-      .from('branches')
-      .select('name, venue_static_ip')
-      .eq('id', branch_id)
-      .single()
-
-    if (branchErr || !branch) {
-      return NextResponse.json({
-        allowed: false,
-        method: 'ip',
-        client_ip: clientIp,
-        error: branchErr?.message ?? 'סניף לא נמצא',
-      }, { status: 404 })
-    }
-
-    const ipMatch = !!branch.venue_static_ip && clientIp === branch.venue_static_ip
-    return NextResponse.json({
-      allowed: ipMatch,
-      method: 'ip',
-      client_ip: clientIp,
-      branch_ip: branch.venue_static_ip ?? null,
-      branch_name: branch.name,
-      match: ipMatch,
-    })
-  }
-
-  // Mode: gps — test GPS against a branch's venue coordinates
+  // For all other modes, we need a branch_id
   if (!branch_id) {
-    return NextResponse.json({
-      allowed: false,
-      method: 'gps',
-      client_ip: clientIp,
-      error: 'נדרש branch_id לבדיקת GPS',
-    })
+    return NextResponse.json({ allowed: false, client_ip: clientIp, error: 'נדרש branch_id' }, { status: 400 })
   }
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
@@ -114,21 +81,36 @@ export async function POST(req: NextRequest) {
   if (branchErr || !branch) {
     return NextResponse.json({
       allowed: false,
-      method: 'gps',
       client_ip: clientIp,
       error: branchErr?.message ?? 'סניף לא נמצא',
-      debug: branchErr,
     }, { status: 404 })
   }
 
+  // mode: ip — test IP (real client IP or provided test_ip) against branch
+  if (mode === 'ip') {
+    const ipToCheck = test_ip ?? clientIp
+    const branchIp = branch.venue_static_ip ?? null
+    const match = !!branchIp && ipToCheck === branchIp
+    return NextResponse.json({
+      allowed: match,
+      method: 'ip',
+      client_ip: clientIp,
+      tested_ip: ipToCheck,
+      branch_ip: branchIp,
+      branch_name: branch.name,
+      match,
+    })
+  }
+
+  // mode: gps — test GPS against branch venue coordinates
   if (branch.venue_lat == null) {
     return NextResponse.json({
       allowed: false,
       method: 'gps',
       client_ip: clientIp,
       branch_name: branch.name,
-      error: 'לא הוגדרו קואורדינטות GPS לסניף זה — יש להגדיר בהגדרות הסניף',
-      has_ip: !!branch.venue_static_ip,
+      branch_ip: branch.venue_static_ip ?? null,
+      error: 'לא הוגדרו קואורדינטות GPS לסניף זה',
     })
   }
 
@@ -139,7 +121,7 @@ export async function POST(req: NextRequest) {
       client_ip: clientIp,
       branch_name: branch.name,
       target_coords: { lat: branch.venue_lat, lng: branch.venue_lng },
-      error: 'לא התקבלו קואורדינטות GPS — אפשר גישה למיקום בדפדפן',
+      error: 'לא התקבלו קואורדינטות GPS',
     })
   }
 
