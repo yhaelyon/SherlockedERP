@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
   // Get the authenticated user's UUID from the server-side session
   const cookieStore = cookies()
   const supabaseAuth = createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    cookies: { get: (name) => cookieStore.get(name)?.value },
+    cookies: { get: (name: string) => cookieStore.get(name)?.value },
   })
   const { data: { user: authUser } } = await supabaseAuth.auth.getUser()
   if (!authUser) {
