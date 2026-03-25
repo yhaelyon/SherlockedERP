@@ -139,9 +139,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [users, setUsers] = useState<StoredUser[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [configError, setConfigError] = useState<string | null>(null)
 
   useEffect(() => {
-    const supabase = createClient()
+    let supabase: ReturnType<typeof createClient>
+    try {
+      supabase = createClient()
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Supabase configuration error'
+      setConfigError(msg)
+      setLoading(false)
+      return
+    }
 
     // Load session on mount
     supabase.auth.getSession().then(async ({ data: { session } }) => {
@@ -165,6 +174,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     return () => subscription.unsubscribe()
   }, [])
+
+  if (configError) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#0F1117', flexDirection: 'column', gap: '12px', padding: '24px' }}>
+        <div style={{ color: '#F87171', fontSize: '20px' }}>⚠️ שגיאת הגדרות</div>
+        <div style={{ color: '#8B8FA8', fontSize: '14px', textAlign: 'center', maxWidth: '480px', direction: 'ltr', fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>{configError}</div>
+      </div>
+    )
+  }
 
   const login = useCallback(async (email: string, password: string): Promise<boolean> => {
     setError(null)
