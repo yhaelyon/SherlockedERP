@@ -9,7 +9,6 @@ const HEBREW_MONTHS = [
   'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר',
 ]
 
-
 function formatTime(date: Date) {
   return date.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
 }
@@ -25,6 +24,26 @@ function formatLogTime(d: Date) {
   return d.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
 }
 
+function formatDateTime(iso: string) {
+  const d = new Date(iso)
+  return d.toLocaleString('he-IL', {
+    day: '2-digit', month: '2-digit', year: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  })
+}
+
+function formatMinutes(mins: number | null) {
+  if (mins == null) return '—'
+  const h = Math.floor(mins / 60)
+  const m = mins % 60
+  return h > 0 ? `${h}ש' ${m}ד'` : `${m}ד'`
+}
+
+function currentMonthStr() {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+}
+
 type Status = 'out' | 'in'
 type Branch = { id: string; name: string }
 type GeoResult = { ok: true; lat: number; lng: number } | { ok: false; denied: boolean }
@@ -36,6 +55,17 @@ type LogEntry = {
   ok: boolean
   branch: string
   lines: string[]
+}
+
+type AttendanceRecord = {
+  id: string
+  branch_id: string
+  clock_in: string
+  clock_out: string | null
+  total_minutes: number | null
+  manual_entry: boolean
+  note: string | null
+  branches: { name: string } | null
 }
 
 function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: number) {
@@ -82,8 +112,8 @@ function LocationPermissionBanner({ onDismiss }: { onDismiss: () => void }) {
           <div className="font-semibold text-[#E8EAFF] mb-2 text-sm">כיצד להפעיל מיקום בכרום:</div>
           <ol className="space-y-1.5 text-[#8B8FA8] text-xs list-decimal list-inside">
             <li>לחץ על סמל המנעול <span className="font-mono bg-[#1A1D27] px-1 rounded">🔒</span> בשורת הכתובת</li>
-            <li>בחר <strong className="text-[#E8EAFF]">"הגדרות אתר"</strong></li>
-            <li>מצא <strong className="text-[#E8EAFF]">"מיקום"</strong> → שנה ל-<strong className="text-[#00C4AA]">"אפשר"</strong></li>
+            <li>בחר <strong className="text-[#E8EAFF]">&quot;הגדרות אתר&quot;</strong></li>
+            <li>מצא <strong className="text-[#E8EAFF]">&quot;מיקום&quot;</strong> → שנה ל-<strong className="text-[#00C4AA]">&quot;אפשר&quot;</strong></li>
             <li>רענן את הדף ונסה שוב</li>
           </ol>
         </div>
@@ -97,6 +127,126 @@ function LocationPermissionBanner({ onDismiss }: { onDismiss: () => void }) {
         >
           הבנתי
         </button>
+      </div>
+    </div>
+  )
+}
+
+// ── Edit Modal (managers/shift_lead only) ────────────────────────────────────
+function EditModal({
+  record,
+  managerId,
+  onSave,
+  onClose,
+}: {
+  record: AttendanceRecord
+  managerId: string
+  onSave: (updated: AttendanceRecord) => void
+  onClose: () => void
+}) {
+  function toLocalInput(iso: string) {
+    const d = new Date(iso)
+    const pad = (n: number) => String(n).padStart(2, '0')
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  }
+
+  const [clockIn, setClockIn] = useState(toLocalInput(record.clock_in))
+  const [clockOut, setClockOut] = useState(record.clock_out ? toLocalInput(record.clock_out) : '')
+  const [note, setNote] = useState(record.note ?? '')
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState('')
+
+  async function handleSave() {
+    setSaving(true)
+    setErr('')
+    try {
+      const body: Record<string, unknown> = {
+        manager_id: managerId,
+        note,
+        clock_in: new Date(clockIn).toISOString(),
+      }
+      if (clockOut) body.clock_out = new Date(clockOut).toISOString()
+
+      const res = await fetch(`/api/attendance/logs/${record.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const data = await res.json()
+      if (!res.ok) { setErr(data.error ?? 'שגיאה'); setSaving(false); return }
+      onSave(data)
+    } catch {
+      setErr('שגיאת חיבור')
+    }
+    setSaving(false)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.7)' }}>
+      <div className="w-full max-w-md rounded-2xl p-6" style={{ background: '#1A1D27', border: '1px solid #2A2D3E' }}>
+        <div className="flex items-center justify-between mb-5">
+          <h3 className="font-bold text-[#E8EAFF]">עריכת רישום נוכחות</h3>
+          <button onClick={onClose} className="text-[#4A4D5E] hover:text-[#8B8FA8] text-xl leading-none">✕</button>
+        </div>
+
+        <div className="text-xs text-[#8B8FA8] mb-1">סניף</div>
+        <div className="text-sm text-[#E8EAFF] mb-4">{record.branches?.name ?? '—'}</div>
+
+        <div className="mb-3">
+          <div className="text-xs text-[#8B8FA8] mb-1">שעת כניסה</div>
+          <input
+            type="datetime-local"
+            value={clockIn}
+            onChange={e => setClockIn(e.target.value)}
+            className="w-full px-3 py-2 rounded-xl text-sm outline-none"
+            style={{ background: '#0F1117', border: '1px solid #2A2D3E', color: '#E8EAFF' }}
+          />
+        </div>
+
+        <div className="mb-3">
+          <div className="text-xs text-[#8B8FA8] mb-1">שעת יציאה (ריק = משמרת פתוחה)</div>
+          <input
+            type="datetime-local"
+            value={clockOut}
+            onChange={e => setClockOut(e.target.value)}
+            className="w-full px-3 py-2 rounded-xl text-sm outline-none"
+            style={{ background: '#0F1117', border: '1px solid #2A2D3E', color: '#E8EAFF' }}
+          />
+        </div>
+
+        <div className="mb-4">
+          <div className="text-xs text-[#8B8FA8] mb-1">הערה</div>
+          <input
+            type="text"
+            value={note}
+            onChange={e => setNote(e.target.value)}
+            placeholder="הערה אופציונלית..."
+            className="w-full px-3 py-2 rounded-xl text-sm outline-none"
+            style={{ background: '#0F1117', border: '1px solid #2A2D3E', color: '#E8EAFF' }}
+          />
+        </div>
+
+        {err && (
+          <div className="text-xs mb-3 px-3 py-2 rounded-lg" style={{ background: 'rgba(239,68,68,0.1)', color: '#F87171' }}>{err}</div>
+        )}
+
+        <div className="flex gap-2">
+          <button
+            onClick={onClose}
+            className="flex-1 py-2.5 rounded-xl text-sm font-bold"
+            style={{ background: '#0F1117', border: '1px solid #2A2D3E', color: '#8B8FA8' }}
+          >
+            ביטול
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="flex-1 py-2.5 rounded-xl text-sm font-bold"
+            style={{ background: saving ? '#2A2D3E' : '#818CF8', color: '#fff' }}
+          >
+            {saving ? 'שומר...' : 'שמור שינויים'}
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -117,7 +267,13 @@ export default function AttendanceMyPage() {
   const [bypassLocation, setBypassLocation] = useState(false)
   const [showLocationBanner, setShowLocationBanner] = useState(false)
 
-  // Log
+  // History
+  const [historyMonth, setHistoryMonth] = useState(currentMonthStr())
+  const [historyRecords, setHistoryRecords] = useState<AttendanceRecord[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [editRecord, setEditRecord] = useState<AttendanceRecord | null>(null)
+
+  // Debug log
   const [log, setLog] = useState<LogEntry[]>([])
   const logRef = useRef<HTMLDivElement>(null)
   const [copied, setCopied] = useState(false)
@@ -128,12 +284,13 @@ export default function AttendanceMyPage() {
   const [ipTesting, setIpTesting] = useState(false)
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const canEdit = user?.role === 'admin' || user?.role === 'shift_lead'
 
   const addLog = useCallback((entry: Omit<LogEntry, 'id' | 'ts'>) => {
     setLog((prev) => [{ ...entry, id: ++logIdCounter, ts: new Date() }, ...prev])
   }, [])
 
-  // Fetch current IP on mount
+  // ── Fetch current IP on mount ───────────────────────────────────────────────
   useEffect(() => {
     fetch('/api/attendance/check-location', {
       method: 'POST',
@@ -144,6 +301,25 @@ export default function AttendanceMyPage() {
       .then((d) => { if (d.client_ip) setCurrentIp(d.client_ip) })
       .catch(() => {})
   }, [])
+
+  // ── Restore active shift state on mount ─────────────────────────────────────
+  useEffect(() => {
+    if (!user?.id) return
+
+    fetch(`/api/attendance/active?user_id=${user.id}`)
+      .then(r => r.json())
+      .then(({ active }) => {
+        if (active) {
+          setStatus('in')
+          setClockInTime(new Date(active.clock_in))
+          // Auto-select the branch from the active shift
+          if (active.branches) {
+            setSelectedBranch({ id: active.branch_id, name: active.branches.name })
+          }
+        }
+      })
+      .catch(() => {})
+  }, [user?.id])
 
   const [branchesError, setBranchesError] = useState('')
 
@@ -163,11 +339,13 @@ export default function AttendanceMyPage() {
 
   useEffect(() => { loadBranches() }, [])
 
+  // ── Clock tick ──────────────────────────────────────────────────────────────
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000)
     return () => clearInterval(id)
   }, [])
 
+  // ── Elapsed timer ───────────────────────────────────────────────────────────
   useEffect(() => {
     if (status === 'in' && clockInTime) {
       timerRef.current = setInterval(() => {
@@ -180,9 +358,25 @@ export default function AttendanceMyPage() {
     return () => { if (timerRef.current) clearInterval(timerRef.current) }
   }, [status, clockInTime])
 
+  // ── Load history ─────────────────────────────────────────────────────────────
+  const loadHistory = useCallback(() => {
+    if (!user?.id) return
+    setHistoryLoading(true)
+    fetch(`/api/attendance/logs?user_id=${user.id}&month=${historyMonth}`)
+      .then(r => r.json())
+      .then(data => {
+        if (Array.isArray(data)) setHistoryRecords(data)
+      })
+      .catch(() => {})
+      .finally(() => setHistoryLoading(false))
+  }, [user?.id, historyMonth])
+
+  useEffect(() => { loadHistory() }, [loadHistory])
+
   const hebrewDay = HEBREW_DAYS[now.getDay()]
   const hebrewDate = `יום ${hebrewDay}, ${now.getDate()} ב${HEBREW_MONTHS[now.getMonth()]} ${now.getFullYear()}`
 
+  // ── Clock in / Clock out ────────────────────────────────────────────────────
   async function handleSubmit() {
     if (!selectedBranch) { setError('יש לבחור סניף'); return }
 
@@ -220,7 +414,6 @@ export default function AttendanceMyPage() {
       const data = await res.json()
       const action = status === 'out' ? 'כניסה' : 'יציאה'
 
-      // Build log lines from server checks array
       const checksLines: string[] = Array.isArray(data.checks)
         ? data.checks.map((c: { step: string; result: string }) => `[${c.step}] ${c.result}`)
         : []
@@ -259,6 +452,7 @@ export default function AttendanceMyPage() {
         } else {
           setStatus('out'); setClockInTime(null)
           setSuccessMsg(`נרשמה יציאה ממשמרת ✓ (${methodLabel})`)
+          loadHistory()
         }
       }
     } catch {
@@ -358,6 +552,22 @@ export default function AttendanceMyPage() {
     })
   }
 
+  // History month navigation
+  function prevMonth() {
+    const [y, m] = historyMonth.split('-').map(Number)
+    const d = new Date(y, m - 2, 1)
+    setHistoryMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`)
+  }
+  function nextMonth() {
+    const [y, m] = historyMonth.split('-').map(Number)
+    const d = new Date(y, m, 1)
+    setHistoryMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`)
+  }
+
+  const historyTotalMinutes = historyRecords
+    .filter(r => r.clock_out != null)
+    .reduce((sum, r) => sum + (r.total_minutes ?? 0), 0)
+
   const tagColors: Record<string, { bg: string; color: string }> = {
     כניסה: { bg: 'rgba(0,196,170,0.15)', color: '#00C4AA' },
     יציאה: { bg: 'rgba(234,88,12,0.15)', color: '#FB923C' },
@@ -370,6 +580,17 @@ export default function AttendanceMyPage() {
   return (
     <div className="p-6 max-w-lg mx-auto">
       {showLocationBanner && <LocationPermissionBanner onDismiss={() => setShowLocationBanner(false)} />}
+      {editRecord && user && (
+        <EditModal
+          record={editRecord}
+          managerId={user.id}
+          onSave={(updated) => {
+            setHistoryRecords(prev => prev.map(r => r.id === updated.id ? updated : r))
+            setEditRecord(null)
+          }}
+          onClose={() => setEditRecord(null)}
+        />
+      )}
 
       <h1 className="text-2xl font-bold text-[#E8EAFF] mb-1">דיווח נוכחות</h1>
       <p className="text-[#8B8FA8] mb-6 text-sm">{hebrewDate}</p>
@@ -385,6 +606,11 @@ export default function AttendanceMyPage() {
               {formatElapsed(elapsed)}
             </div>
             <div className="text-xs text-[#8B8FA8] mt-2">כניסה: {formatTime(clockInTime)}</div>
+            {selectedBranch && (
+              <div className="text-xs mt-1 px-3 py-1 rounded-full" style={{ background: 'rgba(0,196,170,0.1)', color: '#00C4AA' }}>
+                {selectedBranch.name}
+              </div>
+            )}
           </div>
         )}
         <div
@@ -397,7 +623,6 @@ export default function AttendanceMyPage() {
 
       {/* ── Action card ── */}
       <div className="rounded-2xl p-6 mb-5" style={{ background: '#1A1D27', border: '1px solid #2A2D3E' }}>
-        {/* Branch selector */}
         {branches.length === 0 && !branchesError && <div className="mb-4 text-center text-sm text-[#8B8FA8]">טוען סניפים...</div>}
         {branchesError && (
           <div className="mb-4 px-3 py-2 rounded-lg flex items-center justify-between" style={{ background: 'rgba(239,68,68,0.1)', color: '#F87171' }}>
@@ -414,12 +639,15 @@ export default function AttendanceMyPage() {
                 return (
                   <button
                     key={b.id}
-                    onClick={() => setSelectedBranch(b)}
+                    onClick={() => { if (status === 'out') setSelectedBranch(b) }}
+                    disabled={status === 'in'}
                     className="flex-1 py-3 rounded-xl text-sm font-bold transition-all min-w-[80px]"
                     style={{
                       background: isSel ? 'rgba(0,196,170,0.15)' : '#0F1117',
                       border: `1px solid ${isSel ? '#00C4AA' : '#2A2D3E'}`,
                       color: isSel ? '#00C4AA' : '#8B8FA8',
+                      cursor: status === 'in' ? 'default' : 'pointer',
+                      opacity: status === 'in' && !isSel ? 0.4 : 1,
                     }}
                   >
                     {b.name}
@@ -454,7 +682,6 @@ export default function AttendanceMyPage() {
           {status === 'out' ? 'המערכת תאמת מיקום GPS ← IP לפי הסדר' : 'המערכת תאמת מיקומך לרישום יציאה'}
         </p>
 
-        {/* Bypass toggle */}
         <div className="flex items-center justify-center gap-2 mt-4">
           <label className="flex items-center gap-2 cursor-pointer select-none">
             <div
@@ -471,6 +698,74 @@ export default function AttendanceMyPage() {
         </div>
       </div>
 
+      {/* ── Attendance History ── */}
+      <div className="rounded-2xl overflow-hidden mb-5" style={{ border: '1px solid #2A2D3E' }}>
+        <div className="px-4 py-3 flex items-center justify-between" style={{ background: '#1A1D27', borderBottom: '1px solid #2A2D3E' }}>
+          <h2 className="text-[#E8EAFF] font-semibold text-sm">היסטוריית נוכחות</h2>
+          <div className="flex items-center gap-2">
+            <button onClick={prevMonth} className="w-6 h-6 rounded-lg text-xs flex items-center justify-center" style={{ background: '#0F1117', color: '#8B8FA8' }}>‹</button>
+            <span className="text-xs text-[#8B8FA8] min-w-[70px] text-center">{historyMonth}</span>
+            <button onClick={nextMonth} className="w-6 h-6 rounded-lg text-xs flex items-center justify-center" style={{ background: '#0F1117', color: '#8B8FA8' }}>›</button>
+            <button onClick={loadHistory} className="text-xs px-2 py-1 rounded-lg" style={{ background: '#0F1117', color: '#4A4D5E' }}>↻</button>
+          </div>
+        </div>
+
+        {/* Month summary */}
+        {historyRecords.length > 0 && (
+          <div className="px-4 py-2 flex items-center gap-4 text-xs" style={{ background: '#13151E', borderBottom: '1px solid #2A2D3E' }}>
+            <span style={{ color: '#8B8FA8' }}>סה״כ: <strong style={{ color: '#E8EAFF' }}>{historyRecords.filter(r => r.clock_out).length} משמרות</strong></span>
+            <span style={{ color: '#8B8FA8' }}>שעות: <strong style={{ color: '#00C4AA' }}>{formatMinutes(historyTotalMinutes)}</strong></span>
+          </div>
+        )}
+
+        <div style={{ background: '#0F1117' }}>
+          {historyLoading ? (
+            <div className="px-4 py-6 text-center text-xs text-[#4A4D5E]">טוען...</div>
+          ) : historyRecords.length === 0 ? (
+            <div className="px-4 py-6 text-center text-xs text-[#4A4D5E]">אין רישומים לחודש זה</div>
+          ) : (
+            historyRecords.map((rec) => (
+              <div key={rec.id} className="px-4 py-3" style={{ borderBottom: '1px solid #1A1D27' }}>
+                <div className="flex items-center justify-between">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
+                      <span className="text-xs font-mono" style={{ color: '#E8EAFF' }}>{formatDateTime(rec.clock_in)}</span>
+                      <span className="text-[10px] text-[#4A4D5E]">→</span>
+                      <span className="text-xs font-mono" style={{ color: rec.clock_out ? '#E8EAFF' : '#F59E0B' }}>
+                        {rec.clock_out ? formatDateTime(rec.clock_out) : 'פתוח ●'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px]" style={{ color: '#8B8FA8' }}>{rec.branches?.name ?? '—'}</span>
+                      {rec.total_minutes != null && (
+                        <span className="text-[11px] px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(0,196,170,0.1)', color: '#00C4AA' }}>
+                          {formatMinutes(rec.total_minutes)}
+                        </span>
+                      )}
+                      {rec.manual_entry && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(245,158,11,0.1)', color: '#F59E0B' }}>עריכה ידנית</span>
+                      )}
+                    </div>
+                    {rec.note && (
+                      <div className="text-[11px] mt-1" style={{ color: '#4A4D5E' }}>{rec.note}</div>
+                    )}
+                  </div>
+                  {canEdit && (
+                    <button
+                      onClick={() => setEditRecord(rec)}
+                      className="mr-2 text-xs px-2 py-1 rounded-lg flex-shrink-0"
+                      style={{ background: 'rgba(129,140,248,0.1)', color: '#818CF8' }}
+                    >
+                      עריכה
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
       {/* ── IP Test Panel ── */}
       <div className="rounded-2xl p-5 mb-5" style={{ background: '#1A1D27', border: '1px solid #2A2D3E' }}>
         <div className="flex items-center gap-2 mb-4">
@@ -478,7 +773,6 @@ export default function AttendanceMyPage() {
           <h2 className="text-[#E8EAFF] font-semibold">בדיקת כתובת IP</h2>
         </div>
 
-        {/* Current IP */}
         <div className="flex items-center justify-between mb-4 px-3 py-2 rounded-lg" style={{ background: '#0F1117', border: '1px solid #2A2D3E' }}>
           <span className="text-xs text-[#8B8FA8]">כתובת IP נוכחית (שרת):</span>
           <span className="font-mono text-sm" style={{ color: currentIp ? '#818CF8' : '#4A4D5E' }}>
@@ -486,7 +780,6 @@ export default function AttendanceMyPage() {
           </span>
         </div>
 
-        {/* IP input */}
         <div className="text-xs text-[#8B8FA8] mb-1 text-right">בדוק IP ספציפי (השאר ריק לבדיקת ה-IP הנוכחי)</div>
         <div className="flex gap-2">
           <input
@@ -508,11 +801,8 @@ export default function AttendanceMyPage() {
             בדוק
           </button>
         </div>
-        <p className="text-xs text-[#4A4D5E] mt-2 text-right">
-          הבדיקה נשמרת בלוג למטה
-        </p>
+        <p className="text-xs text-[#4A4D5E] mt-2 text-right">הבדיקה נשמרת בלוג למטה</p>
 
-        {/* GPS test button */}
         <div className="mt-3 pt-3" style={{ borderTop: '1px solid #2A2D3E' }}>
           <button
             onClick={handleGpsTest}
@@ -524,7 +814,7 @@ export default function AttendanceMyPage() {
         </div>
       </div>
 
-      {/* ── Log ── */}
+      {/* ── Debug Log ── */}
       <div className="rounded-2xl overflow-hidden" style={{ border: '1px solid #2A2D3E' }}>
         <div className="flex items-center justify-between px-4 py-3" style={{ background: '#1A1D27', borderBottom: '1px solid #2A2D3E' }}>
           <h2 className="text-[#E8EAFF] font-semibold text-sm">לוג בדיקות</h2>
