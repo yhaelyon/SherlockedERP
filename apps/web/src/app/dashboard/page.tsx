@@ -35,14 +35,7 @@ export default function DashboardPage() {
   const [shiftsLoading, setShiftsLoading] = useState(true)
   const [tick, setTick] = useState(0)
 
-  // Re-render elapsed times every 30s
-  useEffect(() => {
-    const id = setInterval(() => setTick(t => t + 1), 30000)
-    return () => clearInterval(id)
-  }, [])
-
   function loadActiveShifts() {
-    setShiftsLoading(true)
     fetch('/api/attendance/active-shifts')
       .then(r => r.json())
       .then(data => {
@@ -52,7 +45,15 @@ export default function DashboardPage() {
       .finally(() => setShiftsLoading(false))
   }
 
-  useEffect(() => { loadActiveShifts() }, [])
+  // Load on mount + auto-refresh every 30s (also updates elapsed times)
+  useEffect(() => {
+    loadActiveShifts()
+    const id = setInterval(() => {
+      setTick(t => t + 1)
+      loadActiveShifts()
+    }, 30000)
+    return () => clearInterval(id)
+  }, [])
 
   // Group active shifts by branch
   const byBranch = activeShifts.reduce<Record<string, { branchName: string; shifts: ActiveShift[] }>>((acc, s) => {

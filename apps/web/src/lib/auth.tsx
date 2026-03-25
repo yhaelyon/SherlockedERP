@@ -8,6 +8,7 @@ import {
   useCallback,
   ReactNode,
 } from 'react'
+import { createClient } from '@/lib/supabase'
 
 // ─── Role definitions ──────────────────────────────────────────────────────
 
@@ -29,18 +30,18 @@ export const ROLE_COLORS: Record<Role, { bg: string; text: string }> = {
 
 export type Permission =
   | 'dashboard'
-  | 'shifts'         // shifts board + constraints (staff read-only)
+  | 'shifts'
   | 'bookings'
   | 'payments'
   | 'tasks'
   | 'vouchers'
   | 'operator_info'
   | 'employees'
-  | 'attendance'     // own clock-in/out
-  | 'payroll'        // view hours reports, salary, etc.
-  | 'payroll_manual' // manually add/edit shifts (shift_lead+)
-  | 'admin'          // admin settings (admin only)
-  | 'user_management'// manage users (admin only)
+  | 'attendance'
+  | 'payroll'
+  | 'payroll_manual'
+  | 'admin'
+  | 'user_management'
 
 const PERMISSIONS: Record<Role, Permission[]> = {
   admin: [
@@ -61,7 +62,7 @@ export function can(role: Role, permission: Permission): boolean {
   return PERMISSIONS[role].includes(permission)
 }
 
-// ─── User type ─────────────────────────────────────────────────────────────
+// ─── User types ─────────────────────────────────────────────────────────────
 
 export interface AuthUser {
   id: string
@@ -71,78 +72,11 @@ export interface AuthUser {
   active: boolean
 }
 
-// ─── Mock user store (localStorage) ───────────────────────────────────────
-// In production this is replaced by Supabase auth.users + user_profiles
-
-const USERS_KEY = 'sherlocked_users'
-const SESSION_KEY = 'sherlocked_session'
-
 export interface StoredUser extends AuthUser {
-  password: string // plain for local dev only — swap for Supabase in prod
-  // Personal details
+  password: string
   phone?: string
   idNumber?: string
   startDate?: string
-}
-
-const DEFAULT_USERS: StoredUser[] = [
-  {
-    id: 'usr_admin_1',
-    email: 'admin@sherlocked.co.il',
-    name: 'מנהל ראשי',
-    role: 'admin',
-    active: true,
-    password: 'Admin1234',
-  },
-  {
-    id: 'usr_lead_1',
-    email: 'lead@sherlocked.co.il',
-    name: 'מנהל משמרת',
-    role: 'shift_lead',
-    active: true,
-    password: 'Lead1234',
-  },
-  {
-    id: 'usr_staff_1',
-    email: 'staff@sherlocked.co.il',
-    name: 'עובד לדוגמה',
-    role: 'staff',
-    active: true,
-    password: 'Staff1234',
-  },
-]
-
-function loadUsers(): StoredUser[] {
-  if (typeof window === 'undefined') return DEFAULT_USERS
-  try {
-    const raw = localStorage.getItem(USERS_KEY)
-    if (raw) return JSON.parse(raw) as StoredUser[]
-  } catch {}
-  saveUsers(DEFAULT_USERS)
-  return DEFAULT_USERS
-}
-
-function saveUsers(users: StoredUser[]) {
-  if (typeof window === 'undefined') return
-  localStorage.setItem(USERS_KEY, JSON.stringify(users))
-}
-
-function loadSession(): AuthUser | null {
-  if (typeof window === 'undefined') return null
-  try {
-    const raw = localStorage.getItem(SESSION_KEY)
-    if (raw) return JSON.parse(raw) as AuthUser
-  } catch {}
-  return null
-}
-
-function saveSession(user: AuthUser | null) {
-  if (typeof window === 'undefined') return
-  if (user) {
-    localStorage.setItem(SESSION_KEY, JSON.stringify(user))
-  } else {
-    localStorage.removeItem(SESSION_KEY)
-  }
 }
 
 // ─── Context ────────────────────────────────────────────────────────────────
@@ -155,13 +89,43 @@ interface AuthContextValue {
   login: (email: string, password: string) => Promise<boolean>
   logout: () => void
   can: (permission: Permission) => boolean
-  // User management (admin only)
   createUser: (data: Omit<StoredUser, 'id'>) => void
   updateUser: (id: string, data: Partial<StoredUser>) => void
   deleteUser: (id: string) => void
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+async function loadProfile(userId: string, email: string): Promise<AuthUser | null> {
+  const supabase = createClient()
+  const { data } = await supabase
+    .from('user_profiles')
+    .select('id, full_name, role, active')
+    .eq('id', userId)
+    .single()
+  if (!data) return null
+  return {
+    id: data.id,
+    email,
+    name: data.full_name,
+    role: data.role as Role,
+    active: data.active,
+  }
+}
+
+async function fetchAllUsers(): Promise<StoredUser[]> {
+  try {
+    const res = await fetch('/api/users')
+    if (!res.ok) return []
+    return res.json()
+  } catch {
+    return []
+  }
+}
+
+// ─── Provider ────────────────────────────────────────────────────────────────
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null)
@@ -170,42 +134,48 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    const session = loadSession()
-    const allUsers = loadUsers()
-    setUser(session)
-    setUsers(allUsers)
-    setLoading(false)
+    const supabase = createClient()
+
+    // Load session on mount
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (session?.user) {
+        const profile = await loadProfile(session.user.id, session.user.email ?? '')
+        setUser(profile)
+      }
+      setLoading(false)
+    })
+
+    // Listen for auth state changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (session?.user) {
+        const profile = await loadProfile(session.user.id, session.user.email ?? '')
+        setUser(profile)
+      } else {
+        setUser(null)
+      }
+      setLoading(false)
+    })
+
+    return () => subscription.unsubscribe()
   }, [])
 
   const login = useCallback(async (email: string, password: string): Promise<boolean> => {
     setError(null)
-    const allUsers = loadUsers()
-    const match = allUsers.find(
-      (u) => u.email.toLowerCase() === email.toLowerCase() && u.password === password
-    )
-    if (!match) {
+    const supabase = createClient()
+    const { error: authError } = await supabase.auth.signInWithPassword({ email, password })
+    if (authError) {
       setError('אימייל או סיסמה שגויים')
       return false
     }
-    if (!match.active) {
-      setError('חשבון זה אינו פעיל. פנה למנהל.')
-      return false
-    }
-    const authUser: AuthUser = {
-      id: match.id,
-      email: match.email,
-      name: match.name,
-      role: match.role,
-      active: match.active,
-    }
-    setUser(authUser)
-    saveSession(authUser)
+    // Refresh users list after login (for admin pages)
+    fetchAllUsers().then(setUsers)
     return true
   }, [])
 
   const logout = useCallback(() => {
+    const supabase = createClient()
+    supabase.auth.signOut()
     setUser(null)
-    saveSession(null)
   }, [])
 
   const canDo = useCallback(
@@ -217,37 +187,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   )
 
   const createUser = useCallback((data: Omit<StoredUser, 'id'>) => {
-    const newUser: StoredUser = { ...data, id: `usr_${Date.now()}` }
-    setUsers((prev) => {
-      const updated = [...prev, newUser]
-      saveUsers(updated)
-      return updated
+    fetch('/api/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }).then(async (res) => {
+      if (res.ok) {
+        const newUser = await res.json() as StoredUser
+        setUsers((prev) => [...prev, newUser])
+      }
     })
   }, [])
 
   const updateUser = useCallback((id: string, data: Partial<StoredUser>) => {
-    setUsers((prev) => {
-      const updated = prev.map((u) => (u.id === id ? { ...u, ...data } : u))
-      saveUsers(updated)
-      // Refresh session if editing self
-      const session = loadSession()
-      if (session?.id === id) {
-        const fresh = updated.find((u) => u.id === id)
-        if (fresh) {
-          const authUser: AuthUser = { id: fresh.id, email: fresh.email, name: fresh.name, role: fresh.role, active: fresh.active }
-          setUser(authUser)
-          saveSession(authUser)
-        }
+    fetch(`/api/users/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }).then(async (res) => {
+      if (res.ok) {
+        const updated = await res.json() as Partial<StoredUser>
+        setUsers((prev) => prev.map((u) => (u.id === id ? { ...u, ...updated } : u)))
+        if (user?.id === id) setUser((prev) => (prev ? { ...prev, ...updated } : null))
       }
-      return updated
     })
-  }, [])
+  }, [user])
 
   const deleteUser = useCallback((id: string) => {
-    setUsers((prev) => {
-      const updated = prev.filter((u) => u.id !== id)
-      saveUsers(updated)
-      return updated
+    fetch(`/api/users/${id}`, { method: 'DELETE' }).then((res) => {
+      if (res.ok) setUsers((prev) => prev.filter((u) => u.id !== id))
     })
   }, [])
 
