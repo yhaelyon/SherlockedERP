@@ -170,7 +170,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       })
       .finally(() => {
         setLoading(false)
+        if (loadingTimer) clearTimeout(loadingTimer)
       })
+
+    // Safety timeout: stop loading after 8 seconds no matter what
+    const loadingTimer = setTimeout(() => {
+      setLoading(p => {
+        if (p) console.warn('[Auth] Loading timed out after 8s - forcing resolution')
+        return false
+      })
+    }, 8000)
 
     // Listen for auth state changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
@@ -188,8 +197,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setLoading(false)
     })
 
-    return () => subscription.unsubscribe()
-  }, [])
+    return () => {
+      subscription.unsubscribe()
+      if (loadingTimer) clearTimeout(loadingTimer)
+    }
+  }, []) // empty deps is fine as we use a singleton
 
   // ── All hooks must be defined before any early return ──────────────────────
 
