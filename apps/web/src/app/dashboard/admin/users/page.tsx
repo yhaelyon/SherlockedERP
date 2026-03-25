@@ -10,7 +10,7 @@ import {
   type StoredUser,
 } from '@/lib/auth'
 
-const ROLES: Role[] = ['admin', 'shift_lead', 'staff']
+const ROLES: Role[] = ['admin', 'manager', 'shift_lead', 'staff']
 
 const BLANK_FORM: Omit<StoredUser, 'id'> = {
   name: '',
@@ -95,7 +95,7 @@ export default function AdminUsersPage() {
     deleteUser(u.id)
   }
 
-  const roleColor = (role: Role) => ROLE_COLORS[role]
+  const roleColor = (role: Role) => ROLE_COLORS[role] || { bg: 'rgba(139,143,168,0.15)', text: '#8B8FA8' }
 
   return (
     <div className="p-6">
@@ -366,6 +366,7 @@ export default function AdminUsersPage() {
                 </select>
                 <div className="mt-1 text-xs" style={{ color: ROLE_COLORS[addForm.role].text }}>
                   {addForm.role === 'admin' && 'גישה מלאה לכל המערכת'}
+                  {addForm.role === 'manager' && 'גישה מלאה לכל המערכת'}
                   {addForm.role === 'shift_lead' && 'גישה לכל הפיצ׳רים כולל עריכת שעות עובדים — ללא הגדרות מנהל'}
                   {addForm.role === 'staff' && 'גישה לדיווח נוכחות ומשמרות בלבד'}
                 </div>

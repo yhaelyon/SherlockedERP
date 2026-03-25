@@ -114,7 +114,7 @@ export default function Sidebar() {
     router.replace('/dashboard/login')
   }
 
-  const roleColor = user ? ROLE_COLORS[user.role] : { bg: '#2A2D3E', text: '#8B8FA8' }
+  const roleColor = user && ROLE_COLORS[user.role] ? ROLE_COLORS[user.role] : { bg: '#2A2D3E', text: '#8B8FA8' }
   const visibleSettings = SETTINGS_CHILDREN.filter((c) => !c.permission || can(c.permission))
 
   return (

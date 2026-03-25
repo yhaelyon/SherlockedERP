@@ -9,7 +9,7 @@ import {
   type StoredUser,
 } from '@/lib/auth'
 
-const ROLES: Role[] = ['admin', 'shift_lead', 'staff']
+const ROLES: Role[] = ['admin', 'manager', 'shift_lead', 'staff']
 
 const BLANK_FORM: Omit<StoredUser, 'id'> = {
   name: '',
@@ -139,9 +139,10 @@ export default function EmployeesPage() {
     total: users.length,
     active: users.filter((u) => u.active).length,
     admin: users.filter((u) => u.role === 'admin').length,
+    manager: users.filter((u) => u.role === 'manager').length,
     shift_lead: users.filter((u) => u.role === 'shift_lead').length,
     staff: users.filter((u) => u.role === 'staff').length,
-  }
+  } as Record<string, number>
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
@@ -207,7 +208,7 @@ export default function EmployeesPage() {
         )}
         {filtered.map((u) => {
           const isMe = u.id === me?.id
-          const rc = ROLE_COLORS[u.role]
+          const rc = ROLE_COLORS[u.role] || { bg: 'rgba(139,143,168,0.15)', text: '#8B8FA8' }
 
           return (
             <div
@@ -478,6 +479,7 @@ export default function EmployeesPage() {
                 </div>
                 <div className="mt-1.5 text-xs" style={{ color: '#555870' }}>
                   {form.role === 'admin' && 'גישה מלאה לכל המערכת כולל הגדרות'}
+                  {form.role === 'manager' && 'גישה מלאה לכל המערכת כולל הגדרות'}
                   {form.role === 'shift_lead' && 'גישה לכל הפיצ׳רים כולל עריכת שעות עובדים'}
                   {form.role === 'staff' && 'גישה לדיווח נוכחות ומשמרות בלבד'}
                 </div>

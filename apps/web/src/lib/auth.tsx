@@ -12,16 +12,18 @@ import { createClient } from '@/lib/supabase'
 
 // ─── Role definitions ──────────────────────────────────────────────────────
 
-export type Role = 'admin' | 'shift_lead' | 'staff'
+export type Role = 'admin' | 'manager' | 'shift_lead' | 'staff'
 
 export const ROLE_LABELS: Record<Role, string> = {
-  admin: 'מנהל',
+  admin: 'מנהל מערכת',
+  manager: 'מנהל',
   shift_lead: 'מנהל משמרת',
   staff: 'עובד',
 }
 
 export const ROLE_COLORS: Record<Role, { bg: string; text: string }> = {
   admin: { bg: 'rgba(239,68,68,0.15)', text: '#F87171' },
+  manager: { bg: 'rgba(16,185,129,0.15)', text: '#10B981' },
   shift_lead: { bg: 'rgba(245,158,11,0.15)', text: '#F59E0B' },
   staff: { bg: 'rgba(139,143,168,0.15)', text: '#8B8FA8' },
 }
@@ -49,6 +51,11 @@ const PERMISSIONS: Record<Role, Permission[]> = {
     'operator_info', 'employees', 'attendance', 'payroll', 'payroll_manual',
     'admin', 'user_management',
   ],
+  manager: [
+    'dashboard', 'shifts', 'bookings', 'payments', 'tasks', 'vouchers',
+    'operator_info', 'employees', 'attendance', 'payroll', 'payroll_manual',
+    'admin', 'user_management',
+  ],
   shift_lead: [
     'dashboard', 'shifts', 'bookings', 'payments', 'tasks', 'vouchers',
     'operator_info', 'employees', 'attendance', 'payroll', 'payroll_manual',
@@ -59,7 +66,7 @@ const PERMISSIONS: Record<Role, Permission[]> = {
 }
 
 export function can(role: Role, permission: Permission): boolean {
-  return PERMISSIONS[role].includes(permission)
+  return PERMISSIONS[role]?.includes(permission) ?? false
 }
 
 // ─── User types ─────────────────────────────────────────────────────────────
