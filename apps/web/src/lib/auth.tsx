@@ -175,31 +175,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe()
   }, [])
 
-  if (configError) {
-    return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#0F1117', flexDirection: 'column', gap: '12px', padding: '24px' }}>
-        <div style={{ color: '#F87171', fontSize: '20px' }}>⚠️ שגיאת הגדרות</div>
-        <div style={{ color: '#8B8FA8', fontSize: '14px', textAlign: 'center', maxWidth: '480px', direction: 'ltr', fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>{configError}</div>
-      </div>
-    )
-  }
+  // ── All hooks must be defined before any early return ──────────────────────
 
   const login = useCallback(async (email: string, password: string): Promise<boolean> => {
     setError(null)
-    const supabase = createClient()
-    const { error: authError } = await supabase.auth.signInWithPassword({ email, password })
-    if (authError) {
-      setError('אימייל או סיסמה שגויים')
+    try {
+      const supabase = createClient()
+      const { error: authError } = await supabase.auth.signInWithPassword({ email, password })
+      if (authError) {
+        setError('אימייל או סיסמה שגויים')
+        return false
+      }
+      // Refresh users list after login (for admin pages)
+      fetchAllUsers().then(setUsers)
+      return true
+    } catch {
+      setError('שגיאת הגדרות מערכת')
       return false
     }
-    // Refresh users list after login (for admin pages)
-    fetchAllUsers().then(setUsers)
-    return true
   }, [])
 
   const logout = useCallback(() => {
-    const supabase = createClient()
-    supabase.auth.signOut()
+    try {
+      const supabase = createClient()
+      supabase.auth.signOut()
+    } catch { /* no-op */ }
     setUser(null)
   }, [])
 
@@ -243,6 +243,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (res.ok) setUsers((prev) => prev.filter((u) => u.id !== id))
     })
   }, [])
+
+  // ── Early return AFTER all hooks ───────────────────────────────────────────
+
+  if (configError) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#0F1117', flexDirection: 'column', gap: '12px', padding: '24px' }}>
+        <div style={{ color: '#F87171', fontSize: '20px' }}>⚠️ שגיאת הגדרות</div>
+        <div style={{ color: '#8B8FA8', fontSize: '14px', textAlign: 'center', maxWidth: '480px', direction: 'ltr', fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>{configError}</div>
+      </div>
+    )
+  }
 
   return (
     <AuthContext.Provider
