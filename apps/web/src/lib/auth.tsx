@@ -153,19 +153,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     // Load session on mount
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (session?.user) {
-        const profile = await loadProfile(session.user.id, session.user.email ?? '')
-        setUser(profile)
-      }
-      setLoading(false)
-    })
+    supabase.auth.getSession()
+      .then(async ({ data: { session } }) => {
+        if (session?.user) {
+          try {
+            const profile = await loadProfile(session.user.id, session.user.email ?? '')
+            setUser(profile)
+          } catch (e) {
+            console.error('[Auth] Profile load failed:', e)
+            setUser(null)
+          }
+        }
+      })
+      .catch((e) => {
+        console.error('[Auth] Session failed:', e)
+      })
+      .finally(() => {
+        setLoading(false)
+      })
 
     // Listen for auth state changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (session?.user) {
-        const profile = await loadProfile(session.user.id, session.user.email ?? '')
-        setUser(profile)
+        try {
+          const profile = await loadProfile(session.user.id, session.user.email ?? '')
+          setUser(profile)
+        } catch (e) {
+          console.error('[Auth] State change profile load failed:', e)
+          setUser(null)
+        }
       } else {
         setUser(null)
       }
