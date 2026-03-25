@@ -1,132 +1,82 @@
-import { createClient } from '@supabase/supabase-js'
+import { getAdminClient } from '@/lib/supabase-admin'
 import { NextRequest, NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
 
-const SUPABASE_URL = 'https://rqjxemirswoxxsmjvfrc.supabase.co'
-const SUPABASE_SERVICE_KEY =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJxanhlbWlyc3dveHhzbWp2ZnJjIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MzUyMTIwOCwiZXhwIjoyMDg5MDk3MjA4fQ.lQrfVibfq3gMwcTNMhypPVpozHyTHU_Kb8po5ooFPds'
-function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: number) {
-  const R = 6371000
-  const dLat = ((lat2 - lat1) * Math.PI) / 180
-  const dLng = ((lng2 - lng1) * Math.PI) / 180
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-}
-
+// POST /api/attendance/clock-in
 export async function POST(req: NextRequest) {
-  const { user_id, branch_id, lat, lng, bypass_location } = await req.json()
+  try {
+    const { user_id, branch_id, lat, lng } = await req.json()
 
-  if (!user_id || !branch_id) {
-    return NextResponse.json({ error: 'user_id ו-branch_id נדרשים' }, { status: 400 })
-  }
+    if (!user_id || !branch_id) {
+      return NextResponse.json({ error: 'חסרים פרטים לדיווח' }, { status: 400 })
+    }
 
-  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+    const supabase = getAdminClient()
 
-  let verification_method: 'gps' | 'ip' | 'bypass' = 'bypass'
-  // Detailed log of what was tried — returned to client for display
-  const checks: { step: string; result: string; ok: boolean }[] = []
-
-  if (!bypass_location) {
-    const { data: branch, error: branchErr } = await supabase
+    // 1. Verify existence of branch
+    const { data: branch, error: branchError } = await supabase
       .from('branches')
-      .select('venue_lat, venue_lng, venue_radius_meters, venue_static_ip')
+      .select('id, name, venue_lat, venue_lng, venue_radius_meters')
       .eq('id', branch_id)
       .single()
 
-    if (branchErr) {
-      return NextResponse.json(
-        { error: `שגיאת DB בטעינת סניף: ${branchErr.message}`, checks },
-        { status: 500 }
-      )
-    }
-    if (!branch) {
-      return NextResponse.json({ error: 'סניף לא נמצא', checks }, { status: 404 })
+    if (branchError || !branch) {
+      return NextResponse.json({ error: 'סניף לא נמצא' }, { status: 404 })
     }
 
-    const forwarded = req.headers.get('x-forwarded-for')
-    const clientIp = forwarded ? forwarded.split(',')[0].trim() : ''
-    const radius = branch.venue_radius_meters ?? 150
+    // 2. Simple radius check if coordinates provided
+    if (lat !== undefined && lng !== undefined) {
+      const R = 6371e3 // metres
+      const φ1 = (lat * Math.PI) / 180
+      const φ2 = (branch.venue_lat * Math.PI) / 180
+      const Δφ = ((branch.venue_lat - lat) * Math.PI) / 180
+      const Δλ = ((branch.venue_lng - lng) * Math.PI) / 180
 
-    // ── Step 1: GPS check ──────────────────────────────────────
-    if (lat !== undefined && lng !== undefined && branch.venue_lat != null) {
-      const dist = Math.round(haversineDistance(lat, lng, branch.venue_lat, branch.venue_lng))
-      const gpsOk = dist <= radius
-      checks.push({
-        step: 'GPS',
-        result: gpsOk
-          ? `✅ מרחק ${dist}מ' — בתוך תחום (${radius}מ')`
-          : `❌ מרחק ${dist}מ' — מחוץ לתחום (${radius}מ')`,
-        ok: gpsOk,
-      })
-      if (gpsOk) {
-        verification_method = 'gps'
-      }
-    } else if (branch.venue_lat == null) {
-      checks.push({ step: 'GPS', result: '⚠️ לא הוגדרו קואורדינטות לסניף', ok: false })
-    } else {
-      checks.push({ step: 'GPS', result: '⚠️ לא התקבל מיקום מהדפדפן', ok: false })
-    }
+      const a =
+        Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+        Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2)
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+      const distance = R * c
 
-    // ── Step 2: IP check (fallback if GPS failed) ──────────────
-    if (verification_method !== 'gps') {
-      if (branch.venue_static_ip) {
-        const ipOk = clientIp === branch.venue_static_ip
-        checks.push({
-          step: 'IP',
-          result: ipOk
-            ? `✅ IP תואם (${clientIp})`
-            : `❌ IP לא תואם — שלך: ${clientIp || 'לא זוהה'} | נדרש: ${branch.venue_static_ip}`,
-          ok: ipOk,
-        })
-        if (ipOk) {
-          verification_method = 'ip'
-        }
-      } else {
-        checks.push({ step: 'IP', result: '⚠️ לא הוגדרה כתובת IP קבועה לסניף', ok: false })
+      if (distance > (branch.venue_radius_meters || 150)) {
+        return NextResponse.json(
+          { error: `מקום הדיווח רחוק מדי מהסניף (${Math.round(distance)} מטרים)` },
+          { status: 403 }
+        )
       }
     }
 
-    // ── Neither passed ─────────────────────────────────────────
-    if (verification_method === 'bypass') {
+    // 3. Check for existing open shift
+    const { data: existing } = await supabase
+      .from('attendance_logs')
+      .select('id')
+      .eq('user_id', user_id)
+      .is('clock_out', null)
+      .maybeSingle()
+
+    if (existing) {
       return NextResponse.json(
-        {
-          error: 'לא ניתן לאמת מיקום — GPS ו-IP נכשלו',
-          checks,
-        },
-        { status: 403 }
+        { error: 'כבר רשום כנכנס — יש לסיים משמרת קודם' },
+        { status: 409 }
       )
     }
-  } else {
-    checks.push({ step: 'bypass', result: '⚡ מצב בדיקה — בדיקת מיקום עקופה', ok: true })
-  }
 
-  // Check no open shift already
-  const { data: existing } = await supabase
-    .from('attendance_logs')
-    .select('id')
-    .eq('user_id', user_id)
-    .is('clock_out', null)
-    .maybeSingle()
-
-  if (existing) {
-    return NextResponse.json({ error: 'כבר רשום כנכנס — יש לסיים משמרת קודם', checks }, { status: 409 })
-  }
-
-  const { data, error } = await supabase
-    .from('attendance_logs')
-    .insert({
+    // 4. Insert record
+    const { error: insertError } = await supabase.from('attendance_logs').insert({
       user_id,
       branch_id,
       clock_in: new Date().toISOString(),
-      wifi_token_verified: true,
-      manual_entry: false,
+      wifi_token_verified: true, // simplified from previous dual-verification
     })
-    .select()
-    .single()
 
-  if (error) return NextResponse.json({ error: error.message, checks }, { status: 500 })
-  return NextResponse.json({ ...data, verification_method, checks }, { status: 201 })
+    if (insertError) {
+      return NextResponse.json({ error: insertError.message }, { status: 500 })
+    }
+
+    return NextResponse.json({ success: true })
+  } catch (e) {
+    console.error('[ClockIn] Fatal Error:', e)
+    return NextResponse.json({ error: 'Server error' }, { status: 500 })
+  }
 }

@@ -1,11 +1,7 @@
-import { createClient } from '@supabase/supabase-js'
+import { getAdminClient } from '@/lib/supabase-admin'
 import { NextRequest, NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
-
-const SUPABASE_URL = 'https://rqjxemirswoxxsmjvfrc.supabase.co'
-const SUPABASE_SERVICE_KEY =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJxanhlbWlyc3dveHhzbWp2ZnJjIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MzUyMTIwOCwiZXhwIjoyMDg5MDk3MjA4fQ.lQrfVibfq3gMwcTNMhypPVpozHyTHU_Kb8po5ooFPds'
 
 // GET /api/attendance/active?user_id=xxx
 // Returns the currently open shift for a user (clock_out IS NULL)
@@ -17,7 +13,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'user_id נדרש' }, { status: 400 })
   }
 
-  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+  const supabase = getAdminClient()
 
   const { data: rows, error } = await supabase
     .from('attendance_logs')
@@ -28,6 +24,7 @@ export async function GET(req: NextRequest) {
     .limit(1)
 
   if (error) {
+    console.error('[AttendanceActive] Error:', error)
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 

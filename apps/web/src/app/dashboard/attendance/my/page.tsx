@@ -306,7 +306,7 @@ export default function AttendanceMyPage() {
   useEffect(() => {
     if (!user?.id) return
 
-    fetch(`/api/attendance/active?user_id=${user.id}`)
+    fetch(`/api/attendance/active?user_id=${user.id}`, { cache: 'no-store' })
       .then(r => r.json())
       .then(({ active }) => {
         if (active) {

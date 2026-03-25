@@ -1,21 +1,11 @@
-import { createClient } from '@supabase/supabase-js'
+import { getAdminClient } from '@/lib/supabase-admin'
 import { NextRequest, NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
 
-const SUPABASE_URL = 'https://rqjxemirswoxxsmjvfrc.supabase.co'
-const SUPABASE_SERVICE_KEY =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJxanhlbWlyc3dveHhzbWp2ZnJjIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MzUyMTIwOCwiZXhwIjoyMDg5MDk3MjA4fQ.lQrfVibfq3gMwcTNMhypPVpozHyTHU_Kb8po5ooFPds'
-
-function adminClient() {
-  return createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
-}
-
 // GET /api/users — list all users (profiles + emails from auth.users)
 export async function GET() {
-  const supabase = adminClient()
+  const supabase = getAdminClient()
 
   const [profilesRes, authRes] = await Promise.all([
     supabase.from('user_profiles').select('id, full_name, role, active, phone, id_number, hourly_rate, employment_type, global_monthly_salary, travel_per_shift, max_travel_monthly, overtime_eligible, vacation_pay_eligible, monthly_health_eligible, monthly_health_amount').order('full_name'),
@@ -57,7 +47,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'name, email, password, role נדרשים' }, { status: 400 })
   }
 
-  const supabase = adminClient()
+  const supabase = getAdminClient()
 
   // Create Supabase Auth user
   const { data: { user }, error: authError } = await supabase.auth.admin.createUser({
