@@ -19,16 +19,17 @@ export async function GET(req: NextRequest) {
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
-  const { data, error } = await supabase
+  const { data: rows, error } = await supabase
     .from('attendance_logs')
     .select('id, user_id, branch_id, clock_in, branches(id, name)')
     .eq('user_id', user_id)
     .is('clock_out', null)
-    .maybeSingle()
+    .order('clock_in', { ascending: false })
+    .limit(1)
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  return NextResponse.json({ active: data })
+  return NextResponse.json({ active: rows?.[0] ?? null })
 }

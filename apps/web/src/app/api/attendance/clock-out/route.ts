@@ -94,13 +94,15 @@ export async function POST(req: NextRequest) {
     checks.push({ step: 'bypass', result: '⚡ מצב בדיקה — בדיקת מיקום עקופה', ok: true })
   }
 
-  const { data: log, error: findErr } = await supabase
+  const { data: logs, error: findErr } = await supabase
     .from('attendance_logs')
     .select('id')
     .eq('user_id', user_id)
     .is('clock_out', null)
-    .maybeSingle()
+    .order('clock_in', { ascending: false })
+    .limit(1)
 
+  const log = logs?.[0] ?? null
   if (findErr || !log) {
     return NextResponse.json({ error: 'לא נמצא רישום כניסה פתוח', checks }, { status: 404 })
   }
