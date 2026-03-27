@@ -1,50 +1,36 @@
-import { createClient } from '@supabase/supabase-js'
+import { getAdminClient } from '@/lib/supabase-admin'
 import { NextRequest, NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
 
-const SUPABASE_URL = 'https://rqjxemirswoxxsmjvfrc.supabase.co'
-const SUPABASE_SERVICE_KEY =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJxanhlbWlyc3dveHhzbWp2ZnJjIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MzUyMTIwOCwiZXhwIjoyMDg5MDk3MjA4fQ.lQrfVibfq3gMwcTNMhypPVpozHyTHU_Kb8po5ooFPds'
-
-// POST /api/attendance/manual
-// Manager manually adds a shift for any employee
-// Body: { user_id, branch_id, clock_in, clock_out?, note?, manager_id }
 export async function POST(req: NextRequest) {
-  const { user_id, branch_id, clock_in, clock_out, note, manager_id } = await req.json()
+  try {
+    const { user_id, branch_id, clock_in, clock_out, note } = await req.json()
 
-  if (!user_id || !branch_id || !clock_in || !manager_id) {
-    return NextResponse.json({ error: 'user_id, branch_id, clock_in, manager_id נדרשים' }, { status: 400 })
-  }
+    if (!user_id || !branch_id || !clock_in || !clock_out) {
+      return NextResponse.json({ error: 'Missing logic' }, { status: 400 })
+    }
 
-  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+    const cIn = new Date(clock_in)
+    const cOut = new Date(clock_out)
+    const total_minutes = Math.floor((cOut.getTime() - cIn.getTime()) / 60000)
 
-  // Verify manager role
-  const { data: manager } = await supabase
-    .from('user_profiles')
-    .select('role')
-    .eq('id', manager_id)
-    .single()
+    const supabase = getAdminClient()
 
-  if (!manager || !['admin', 'shift_lead', 'manager'].includes(manager.role)) {
-    return NextResponse.json({ error: 'אין הרשאה לרישום ידני' }, { status: 403 })
-  }
-
-  const { data, error } = await supabase
-    .from('attendance_logs')
-    .insert({
+    const { error } = await supabase.from('attendance_logs').insert({
       user_id,
       branch_id,
-      clock_in,
-      clock_out: clock_out ?? null,
-      wifi_token_verified: false,
+      clock_in: cIn.toISOString(),
+      clock_out: cOut.toISOString(),
+      total_minutes,
       manual_entry: true,
-      manual_by: manager_id,
-      note: note ?? null,
+      note,
     })
-    .select('id, user_id, branch_id, clock_in, clock_out, total_minutes, manual_entry, note, branches(name)')
-    .single()
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data, { status: 201 })
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+    return NextResponse.json({ success: true, total_minutes })
+  } catch (e) {
+    return NextResponse.json({ error: 'Manual clock error' }, { status: 500 })
+  }
 }
