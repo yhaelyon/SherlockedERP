@@ -153,45 +153,51 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     // Load session on mount
-    supabase.auth.getSession()
-      .then(async ({ data: { session } }) => {
-        if (session?.user) {
-          try {
-            const profile = await loadProfile(session.user.id, session.user.email ?? '')
-            setUser(profile)
-          } catch (e) {
-            console.error('[Auth] Profile load failed:', e)
-            setUser(null)
-          }
-        }
-      })
-      .catch((e) => {
-        console.error('[Auth] Session failed:', e)
-      })
-      .finally(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    supabase.auth.getSession().then(async (result: any) => {
+      const session = result?.data?.session ?? null
+      if (!session?.user) {
+        // No session — resolve loading immediately so login page shows fast
         setLoading(false)
         if (loadingTimer) clearTimeout(loadingTimer)
-      })
+        return
+      }
+      // Has session — load profile then resolve loading (timer is the safety net)
+      try {
+        const profile = await loadProfile(session.user.id, session.user.email ?? '')
+        setUser(profile)
+      } catch (e) {
+        console.error('[Auth] Profile load failed:', e)
+        setUser(null)
+      }
+      setLoading(false)
+      if (loadingTimer) clearTimeout(loadingTimer)
+    }).catch((e: unknown) => {
+      console.error('[Auth] Session failed:', e)
+      setLoading(false)
+      if (loadingTimer) clearTimeout(loadingTimer)
+    })
 
-    // Safety timeout: stop loading after 8 seconds no matter what
+    // Safety timeout: stop loading after 4 seconds no matter what
     const loadingTimer = setTimeout(() => {
       setLoading(p => {
-        if (p) console.warn('[Auth] Loading timed out after 8s - forcing resolution')
+        if (p) console.warn('[Auth] Loading timed out after 4s - forcing resolution')
         return false
       })
-    }, 8000)
+    }, 4000)
 
     // Listen for auth state changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (session?.user) {
-        try {
-          const profile = await loadProfile(session.user.id, session.user.email ?? '')
-          setUser(profile)
-        } catch (e) {
-          console.error('[Auth] State change profile load failed:', e)
-          setUser(null)
-        }
-      } else {
+      if (!session?.user) {
+        setUser(null)
+        setLoading(false)
+        return
+      }
+      try {
+        const profile = await loadProfile(session.user.id, session.user.email ?? '')
+        setUser(profile)
+      } catch (e) {
+        console.error('[Auth] State change profile load failed:', e)
         setUser(null)
       }
       setLoading(false)
