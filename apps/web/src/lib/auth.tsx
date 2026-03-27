@@ -216,16 +216,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setError(null)
     try {
       const supabase = createClient()
-      const { error: authError } = await supabase.auth.signInWithPassword({ email, password })
-      if (authError) {
+      const timeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('timeout')), 10000)
+      )
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result: any = await Promise.race([
+        supabase.auth.signInWithPassword({ email, password }),
+        timeout,
+      ])
+      if (result?.error) {
         setError('אימייל או סיסמה שגויים')
         return false
       }
-      // Refresh users list after login (for admin pages)
       fetchAllUsers().then(setUsers)
       return true
-    } catch {
-      setError('שגיאת הגדרות מערכת')
+    } catch (e) {
+      const msg = e instanceof Error && e.message === 'timeout'
+        ? 'שגיאת חיבור — בדוק הגדרות סביבה'
+        : 'שגיאת הגדרות מערכת'
+      setError(msg)
       return false
     }
   }, [])
