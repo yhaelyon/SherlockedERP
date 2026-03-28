@@ -2,6 +2,7 @@ import { getAdminClient } from '@/lib/supabase-admin'
 import { NextRequest, NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
+export const revalidate = 0
 
 // GET /api/attendance/active?user_id=xxx
 // Returns the currently open shift for a user (clock_out IS NULL)

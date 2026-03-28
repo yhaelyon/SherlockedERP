@@ -307,7 +307,7 @@ export default function AttendanceMyPage() {
   // ── Restore active shift state on mount + re-check on visibility change ─────
   const checkActiveShift = useCallback(() => {
     if (!user?.id) return
-    fetch(`/api/attendance/active?user_id=${user.id}`, { cache: 'no-store' })
+    fetch(`/api/attendance/active?user_id=${user.id}&_t=${Date.now()}`, { cache: 'no-store' })
       .then(r => r.json())
       .then(({ active }) => {
         if (active) {

@@ -2,6 +2,7 @@ import { getAdminClient } from '@/lib/supabase-admin'
 import { NextRequest, NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
+export const revalidate = 0
 
 // GET /api/attendance/logs?user_id=xxx&month=YYYY-MM
 // Returns attendance history for a user
