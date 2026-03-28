@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import { useAuth } from '@/lib/auth'
 
 const HEBREW_DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת']
@@ -254,6 +255,7 @@ function EditModal({
 
 export default function AttendanceMyPage() {
   const { user } = useAuth()
+  const router = useRouter()
   const [now, setNow] = useState(new Date())
   const [status, setStatus] = useState<Status>('out')
   const [clockInTime, setClockInTime] = useState<Date | null>(null)
@@ -302,24 +304,48 @@ export default function AttendanceMyPage() {
       .catch(() => {})
   }, [])
 
-  // ── Restore active shift state on mount ─────────────────────────────────────
-  useEffect(() => {
+  // ── Restore active shift state on mount + re-check on visibility change ─────
+  const checkActiveShift = useCallback(() => {
     if (!user?.id) return
-
     fetch(`/api/attendance/active?user_id=${user.id}`, { cache: 'no-store' })
       .then(r => r.json())
       .then(({ active }) => {
         if (active) {
+          const clockInDate = new Date(active.clock_in)
+          const ageHours = (Date.now() - clockInDate.getTime()) / 3600000
+          // Safety: ignore shifts older than 24h (likely a stuck/orphaned record)
+          if (ageHours > 24) {
+            console.warn('[Attendance] Active shift is', Math.round(ageHours), 'hours old — treating as closed')
+            setStatus('out')
+            setClockInTime(null)
+            return
+          }
           setStatus('in')
-          setClockInTime(new Date(active.clock_in))
-          // Auto-select the branch from the active shift
+          setClockInTime(clockInDate)
           if (active.branches) {
             setSelectedBranch({ id: active.branch_id, name: active.branches.name })
           }
+        } else {
+          // Explicitly reset to out — important when returning from other pages
+          setStatus('out')
+          setClockInTime(null)
         }
       })
       .catch(() => {})
   }, [user?.id])
+
+  useEffect(() => {
+    checkActiveShift()
+  }, [checkActiveShift])
+
+  // Re-check shift status whenever the user returns to this tab/page
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') checkActiveShift()
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => document.removeEventListener('visibilitychange', handleVisibility)
+  }, [checkActiveShift])
 
   const [branchesError, setBranchesError] = useState('')
 
@@ -454,6 +480,8 @@ export default function AttendanceMyPage() {
           setSuccessMsg(`נרשמה יציאה ממשמרת ✓ (${methodLabel})`)
           loadHistory()
         }
+        // Bust Next.js router cache so state is fresh if user navigates away+back
+        router.refresh()
       }
     } catch {
       setError('לא ניתן להתחבר לשרת')
