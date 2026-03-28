@@ -74,7 +74,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: insertError.message }, { status: 500 })
     }
 
-    return NextResponse.json({ success: true })
+    return NextResponse.json({ success: true, verification_method: lat !== undefined ? 'gps' : 'bypass' })
   } catch (e) {
     console.error('[ClockIn] Fatal Error:', e)
     return NextResponse.json({ error: 'Server error' }, { status: 500 })

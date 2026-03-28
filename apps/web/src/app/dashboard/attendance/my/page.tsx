@@ -445,19 +445,27 @@ export default function AttendanceMyPage() {
         : []
 
       if (!res.ok) {
-        setError(data.error ?? 'שגיאה בלתי צפויה')
-        addLog({
-          tag: 'שגיאה',
-          ok: false,
-          branch: selectedBranch.name,
-          lines: [
-            `פעולה: ${action}`,
-            coords ? `GPS שלך: ${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)}` : 'GPS: לא זמין',
-            `IP: ${currentIp || 'לא זוהה'}`,
-            ...checksLines,
-            `❌ ${data.error ?? 'שגיאה לא ידועה'}`,
-          ],
-        })
+        // ── Special case: 409 = UI thinks "out" but DB says "already clocked in"
+        // Re-sync from server so UI shows correct state automatically
+        if (res.status === 409 && status === 'out') {
+          checkActiveShift()
+          setError('') // clear error — UI will update to show "in" state
+          setSuccessMsg('משמרת פתוחה קיימת — הסטטוס עודכן')
+        } else {
+          setError(data.error ?? 'שגיאה בלתי צפויה')
+          addLog({
+            tag: 'שגיאה',
+            ok: false,
+            branch: selectedBranch.name,
+            lines: [
+              `פעולה: ${action}`,
+              coords ? `GPS שלך: ${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)}` : 'GPS: לא זמין',
+              `IP: ${currentIp || 'לא זוהה'}`,
+              ...checksLines,
+              `❌ ${data.error ?? 'שגיאה לא ידועה'}`,
+            ],
+          })
+        }
       } else {
         const method: string = data.verification_method ?? (bypassLocation ? 'bypass' : 'unknown')
         const methodLabel = method === 'gps' ? 'GPS' : method === 'ip' ? 'IP' : 'bypass'
@@ -473,8 +481,11 @@ export default function AttendanceMyPage() {
           ],
         })
         if (status === 'out') {
+          // Clock-in succeeded: update state immediately for instant UX feedback
           setStatus('in'); setClockInTime(new Date())
           setSuccessMsg(`נרשמה כניסה למשמרת ✓ (${methodLabel})`)
+          // Also confirm from DB after 500ms to get exact server timestamp
+          setTimeout(() => checkActiveShift(), 500)
         } else {
           setStatus('out'); setClockInTime(null)
           setSuccessMsg(`נרשמה יציאה ממשמרת ✓ (${methodLabel})`)
@@ -490,6 +501,7 @@ export default function AttendanceMyPage() {
 
     setLoadingMsg(''); setLoading(false)
   }
+
 
   async function handleIpTest() {
     if (!selectedBranch) {
