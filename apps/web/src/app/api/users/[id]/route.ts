@@ -3,6 +3,31 @@ import { NextRequest, NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
 
+// GET /api/users/[id] — fetch single user profile (admin client, bypasses RLS)
+export async function GET(
+  _req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const supabase = getAdminClient()
+    const { data, error } = await supabase
+      .from('user_profiles')
+      .select('id, full_name, role, active')
+      .eq('id', params.id)
+      .single()
+
+    if (error || !data) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 })
+    }
+
+    return NextResponse.json(data)
+  } catch (e: any) {
+    return NextResponse.json({ error: e.message || 'Fetch failed' }, { status: 500 })
+  }
+}
+
+
+
 // PUT /api/users/[id] — update profile + auth email/password
 export async function PUT(
   req: NextRequest,

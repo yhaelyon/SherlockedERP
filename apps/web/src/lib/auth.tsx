@@ -106,21 +106,32 @@ const AuthContext = createContext<AuthContextValue | null>(null)
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 async function loadProfile(userId: string, email: string): Promise<AuthUser | null> {
-  const supabase = createClient()
-  const { data } = await supabase
-    .from('user_profiles')
-    .select('id, full_name, role, active')
-    .eq('id', userId)
-    .single()
-  if (!data) return null
-  return {
-    id: data.id,
-    email,
-    name: data.full_name,
-    role: data.role as Role,
-    active: data.active,
+  try {
+    // Use our own API route (admin client / service role key) — bypasses RLS
+    // This avoids the browser-side race condition where auth.uid() isn't set yet
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 5000)
+
+    const res = await fetch(`/api/users/${userId}`, { signal: controller.signal })
+    clearTimeout(timeout)
+
+    if (!res.ok) return null
+    const data = await res.json()
+    if (!data?.id) return null
+
+    return {
+      id: data.id,
+      email,
+      name: data.full_name,
+      role: data.role as Role,
+      active: data.active,
+    }
+  } catch (e) {
+    console.error('[Auth] loadProfile failed:', e)
+    return null
   }
 }
+
 
 async function fetchAllUsers(): Promise<StoredUser[]> {
   try {
