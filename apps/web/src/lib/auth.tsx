@@ -142,6 +142,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [configError, setConfigError] = useState<string | null>(null)
 
   useEffect(() => {
+    // Clear any stale cookies left by old @supabase/ssr package
+    // (it used cookie storage which broke token refresh on the production domain)
+    if (typeof window !== 'undefined') {
+      try {
+        const oldKeys = Object.keys(localStorage).filter(k =>
+          k.startsWith('sb-') && !k.includes('sherlocked-auth-v2')
+        )
+        oldKeys.forEach(k => localStorage.removeItem(k))
+        if (oldKeys.length) console.log('[Auth] Cleared', oldKeys.length, 'stale old auth keys')
+      } catch { /* ignore */ }
+    }
+
     let supabase: ReturnType<typeof createClient>
     try {
       supabase = createClient()
@@ -152,17 +164,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return
     }
 
-    // Load session on mount
+    let settled = false
+    const settle = () => {
+      if (!settled) {
+        settled = true
+        clearTimeout(loadingTimer)
+      }
+    }
+
+    // onAuthStateChange fires ONCE on mount with the current session (INITIAL_SESSION event)
+    // This is the single source of truth — avoids the getSession() race condition
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    supabase.auth.getSession().then(async (result: any) => {
-      const session = result?.data?.session ?? null
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event: any, session: any) => {
+      console.log('[Auth] onAuthStateChange event:', event)
+
       if (!session?.user) {
-        // No session — resolve loading immediately so login page shows fast
+        setUser(null)
         setLoading(false)
-        if (loadingTimer) clearTimeout(loadingTimer)
+        settle()
         return
       }
-      // Has session — load profile then resolve loading (timer is the safety net)
+
       try {
         const profile = await loadProfile(session.user.id, session.user.email ?? '')
         setUser(profile)
@@ -171,42 +193,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(null)
       }
       setLoading(false)
-      if (loadingTimer) clearTimeout(loadingTimer)
-    }).catch((e: unknown) => {
-      console.error('[Auth] Session failed:', e)
-      setLoading(false)
-      if (loadingTimer) clearTimeout(loadingTimer)
+      settle()
     })
 
-    // Safety timeout: stop loading after 4 seconds no matter what
+    // Safety net: if onAuthStateChange never fires (browser issue / network hang)
+    // force loading=false after 8 seconds so the login page is guaranteed to appear
     const loadingTimer = setTimeout(() => {
-      setLoading(p => {
-        if (p) console.warn('[Auth] Loading timed out after 4s - forcing resolution')
-        return false
-      })
-    }, 4000)
-
-    // Listen for auth state changes
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event: any, session: any) => {
-      if (!session?.user) {
-        setUser(null)
+      if (!settled) {
+        settled = true
+        console.warn('[Auth] Loading timed out after 8s – forcing resolution')
         setLoading(false)
-        return
       }
-      try {
-        const profile = await loadProfile(session.user.id, session.user.email ?? '')
-        setUser(profile)
-      } catch (e) {
-        console.error('[Auth] State change profile load failed:', e)
-        setUser(null)
-      }
-      setLoading(false)
-    })
+    }, 8000)
 
     return () => {
       subscription.unsubscribe()
-      if (loadingTimer) clearTimeout(loadingTimer)
+      clearTimeout(loadingTimer)
     }
   }, []) // empty deps is fine as we use a singleton
 
@@ -216,25 +218,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setError(null)
     try {
       const supabase = createClient()
-      const timeout = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('timeout')), 10000)
-      )
+      console.log('[Auth] Attempting login for:', email)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const result: any = await Promise.race([
-        supabase.auth.signInWithPassword({ email, password }),
-        timeout,
-      ])
-      if (result?.error) {
-        setError('אימייל או סיסמה שגויים')
+      const { data, error }: any = await supabase.auth.signInWithPassword({ email, password })
+      if (error) {
+        console.error('[Auth] Login error:', error.message, error.status)
+        if (error.message?.includes('Invalid login credentials')) {
+          setError('אימייל או סיסמה שגויים')
+        } else if (error.message?.includes('fetch') || error.status === 0) {
+          setError('שגיאת חיבור — בדוק חיבור האינטרנט')
+        } else {
+          setError('שגיאת חיבור — בדוק הגדרות סביבה')
+        }
         return false
       }
+      if (!data?.session) {
+        setError('לא התקבלה סשן — נסה שוב')
+        return false
+      }
+      console.log('[Auth] Login successful, session received')
       fetchAllUsers().then(setUsers)
       return true
     } catch (e) {
-      const msg = e instanceof Error && e.message === 'timeout'
-        ? 'שגיאת חיבור — בדוק הגדרות סביבה'
-        : 'שגיאת הגדרות מערכת'
-      setError(msg)
+      console.error('[Auth] Unexpected login error:', e)
+      setError('שגיאת חיבור — בדוק חיבור האינטרנט')
       return false
     }
   }, [])
