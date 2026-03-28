@@ -494,16 +494,17 @@ export default function AttendanceMyPage() {
           ],
         })
         if (status === 'out') {
-          // Clock-in succeeded: update state immediately for instant UX feedback
+          // Clock-in succeeded — trust the HTTP 200, update state immediately.
+          // Do NOT call checkActiveShift() here: it races with the DB and can
+          // transiently return {active: null}, flipping status back to 'out'.
           setStatus('in'); setClockInTime(new Date())
           setSuccessMsg(`נרשמה כניסה למשמרת ✓ (${methodLabel})`)
-          // Also confirm from DB after 500ms to get exact server timestamp
-          setTimeout(() => checkActiveShift(), 500)
         } else {
           setStatus('out'); setClockInTime(null)
           setSuccessMsg(`נרשמה יציאה ממשמרת ✓ (${methodLabel})`)
           loadHistory()
         }
+
         // Bust Next.js router cache so state is fresh if user navigates away+back
         router.refresh()
       }
