@@ -347,6 +347,14 @@ export default function AttendanceMyPage() {
     return () => document.removeEventListener('visibilitychange', handleVisibility)
   }, [checkActiveShift])
 
+  // ── Polling: re-verify shift status every 30s when UI shows 'in' ─────────────
+  // Safety net for Next.js router cache restoring stale state across navigations
+  useEffect(() => {
+    if (status !== 'in') return
+    const interval = setInterval(() => checkActiveShift(), 30000)
+    return () => clearInterval(interval)
+  }, [status, checkActiveShift])
+
   const [branchesError, setBranchesError] = useState('')
 
   function loadBranches() {
@@ -445,11 +453,16 @@ export default function AttendanceMyPage() {
         : []
 
       if (!res.ok) {
-        // ── Special case: 409 = UI thinks "out" but DB says "already clocked in"
-        // Re-sync from server so UI shows correct state automatically
-        if (res.status === 409 && status === 'out') {
+        // ── Mirror case: 404 = UI thinks "in" but DB says "no open shift"
+        // (clock-out already succeeded, UI state is stale from Next.js cache)
+        if (res.status === 404 && status === 'in') {
           checkActiveShift()
-          setError('') // clear error — UI will update to show "in" state
+          setError('') // UI will auto-update to 'out'
+          setSuccessMsg('המשמרת הסתיימה — הסטטוס עודכן')
+        // ── Original case: 409 = UI thinks "out" but DB says "already clocked in"
+        } else if (res.status === 409 && status === 'out') {
+          checkActiveShift()
+          setError('')
           setSuccessMsg('משמרת פתוחה קיימת — הסטטוס עודכן')
         } else {
           setError(data.error ?? 'שגיאה בלתי צפויה')
