@@ -135,13 +135,16 @@ export default function PayrollHoursPage() {
       .then(data => {
         if (Array.isArray(data)) {
           setEmployees(data.map((u: { id: string; name: string; role: string }) => ({ id: u.id, name: u.name, role: u.role })))
-          if (data.length > 0 && !selectedEmployeeId) {
-            setSelectedEmployeeId(data[0].id)
+          // Default: select the logged-in user if they exist in the list, else first employee
+          if (!selectedEmployeeId) {
+            const selfId = me?.id
+            const selfInList = selfId && data.some((u: { id: string }) => u.id === selfId)
+            setSelectedEmployeeId(selfInList ? selfId! : (data[0]?.id ?? ''))
           }
         }
       })
       .catch(() => {})
-  }, [])
+  }, [me?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const monthStr = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}`
   const selectedEmployee = employees.find(e => e.id === selectedEmployeeId)
