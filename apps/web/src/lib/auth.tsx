@@ -199,6 +199,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const profile = await loadProfile(session.user.id, session.user.email ?? '')
         setUser(profile)
+        // Ensure user list is loaded upon page load/refresh
+        fetchAllUsers().then(setUsers)
       } catch (e) {
         console.error('[Auth] Profile load failed:', e)
         setUser(null)

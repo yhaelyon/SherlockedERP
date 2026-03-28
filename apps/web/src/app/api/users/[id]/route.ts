@@ -29,7 +29,7 @@ export async function GET(
 
 
 // PUT /api/users/[id] — update profile + auth email/password
-export async function PUT(
+export async function PATCH(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
