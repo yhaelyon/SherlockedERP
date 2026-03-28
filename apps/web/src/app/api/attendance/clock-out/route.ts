@@ -30,13 +30,11 @@ export async function POST(req: NextRequest) {
     const diffMs = new Date(clockOutAt).getTime() - new Date(log.clock_in).getTime()
     const totalMinutes = Math.floor(diffMs / 60000)
 
-    // 2. Update shift
+    // 2. Update shift — do NOT include total_minutes: it is a GENERATED ALWAYS column
+    // Postgres computes it automatically from (clock_out - clock_in)
     const { error: updateError } = await supabase
       .from('attendance_logs')
-      .update({
-        clock_out: clockOutAt,
-        total_minutes: Math.max(0, totalMinutes),
-      })
+      .update({ clock_out: clockOutAt })
       .eq('id', log.id)
 
     if (updateError) {
@@ -44,6 +42,7 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ success: true, totalMinutes })
+
   } catch (e) {
     console.error('[ClockOut] Error:', e)
     return NextResponse.json({ error: 'Server error' }, { status: 500 })

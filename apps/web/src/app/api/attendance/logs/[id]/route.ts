@@ -27,6 +27,8 @@ export async function PATCH(
 
     const cIn = new Date(clock_in)
     const cOut = new Date(clock_out)
+    // Compute locally to return in response — DO NOT include in update:
+    // total_minutes is a GENERATED ALWAYS column in Postgres (computed from clock_out - clock_in)
     const total_minutes = Math.floor((cOut.getTime() - cIn.getTime()) / 60000)
 
     const { error } = await supabase
@@ -34,7 +36,6 @@ export async function PATCH(
       .update({
         clock_in: cIn.toISOString(),
         clock_out: cOut.toISOString(),
-        total_minutes,
         note,
       })
       .eq('id', params.id)
