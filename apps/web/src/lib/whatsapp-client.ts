@@ -54,8 +54,20 @@ export interface InstanceState {
 
 export async function getInstanceStatus(): Promise<InstanceState | null> {
   try {
-    const data = await request<{ instance: InstanceState }>('GET', `/instance/fetchInstances?instanceName=${INSTANCE}`)
-    return data.instance ?? null
+    const data = await request<any[]>('GET', `/instance/fetchInstances?instanceName=${INSTANCE}`)
+    const instance = data?.[0]
+    if (!instance) return null
+    
+    // Extract number from ownerJid (e.g. "972501234567@s.whatsapp.net" -> "972501234567")
+    const num = instance.ownerJid?.split('@')[0] || instance.number
+
+    return {
+      instanceName: instance.name || INSTANCE,
+      state: instance.connectionStatus as 'open' | 'connecting' | 'close',
+      profileName: instance.profileName,
+      profilePictureUrl: instance.profilePicUrl,
+      number: num,
+    }
   } catch (e) {
     if (e instanceof EvolutionAPIError && e.status === 404) return null
     throw e
