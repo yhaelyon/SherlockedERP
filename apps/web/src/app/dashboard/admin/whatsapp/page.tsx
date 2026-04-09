@@ -30,7 +30,7 @@ interface WaMessage {
   created_at: string
 }
 
-type Tab = 'status' | 'templates' | 'manual' | 'log' | 'settings'
+type Tab = 'status' | 'templates' | 'manual' | 'log' | 'settings' | 'ai'
 
 // ─── Tab button ───────────────────────────────────────────────────────────────
 
@@ -436,6 +436,98 @@ function LogTab() {
   )
 }
 
+// ─── AI Settings Tab ──────────────────────────────────────────────────────────
+
+function AiTab() {
+  const [enabled, setEnabled] = useState(true)
+  const [hasKey, setHasKey] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    fetch('/api/whatsapp/ai/config')
+      .then(r => r.json())
+      .then(d => {
+        setEnabled(d.enabled)
+        setHasKey(d.hasKey)
+        setLoading(false)
+      })
+  }, [])
+
+  async function toggleAi() {
+    setSaving(true)
+    await fetch('/api/whatsapp/ai/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: !enabled }),
+    })
+    setEnabled(!enabled)
+    setSaving(false)
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="rounded-2xl p-6" style={{ background: '#1A1D27', border: '1px solid #2A2D3E' }}>
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="font-bold text-[#E8EAFF]">בינה מלאכותית (ChatGPT)</h3>
+            <p className="text-xs text-[#8B8FA8] mt-1">ניהול מענה אוטומטי וניתוח הודעות נכנסות</p>
+          </div>
+          <div className="w-12 h-12 rounded-2xl flex items-center justify-center text-2xl" style={{ background: 'rgba(0,196,170,0.1)' }}>
+            🤖
+          </div>
+        </div>
+
+        <div className="space-y-4 pt-4 border-t border-[#2A2D3E]">
+          <div className="flex items-center justify-between p-4 rounded-xl bg-[#0F1117]/50 border border-[#2A2D3E]">
+            <div className="flex items-center gap-3">
+              <div className={`w-10 h-10 rounded-full flex items-center justify-center ${hasKey ? 'bg-emerald-500/10 text-emerald-500' : 'bg-red-500/10 text-red-500'}`}>
+                {hasKey ? '✅' : '❌'}
+              </div>
+              <div>
+                <div className="text-sm font-bold text-[#E8EAFF]">OpenAI API Key</div>
+                <div className="text-xs text-[#8B8FA8]">{hasKey ? 'המפתח מוגדר במערכת' : 'המפתח חסר (הגדר OPENAI_API_KEY ב-Railway)'}</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between p-4 rounded-xl bg-[#0F1117]/50 border border-[#2A2D3E]">
+            <div>
+              <div className="text-sm font-bold text-[#E8EAFF]">מענה אוטומטי חכם</div>
+              <div className="text-xs text-[#8B8FA8]">האם לאפשר ל-AI לענות על שאלות נפוצות של לקוחות?</div>
+            </div>
+            <button
+              onClick={toggleAi}
+              disabled={!hasKey || saving}
+              className="relative w-12 h-6 rounded-full transition-all flex items-center px-1"
+              style={{ background: enabled ? '#00C4AA' : '#2A2D3E', opacity: hasKey ? 1 : 0.5 }}
+            >
+              <div
+                className="w-4 h-4 bg-white rounded-full transition-all shadow-md"
+                style={{ transform: enabled ? 'translateX(24px)' : 'translateX(0)' }}
+              />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-2xl p-6 bg-[#0F1117]/30 border border-[#2A2D3E] border-dashed">
+        <h4 className="text-sm font-bold text-[#E8EAFF] mb-3">דוגמה לשימוש:</h4>
+        <div className="space-y-3">
+          <div className="flex flex-col gap-2 p-3 rounded-xl bg-[#1A1D27] self-end max-w-[80%] mr-auto">
+            <span className="text-[10px] text-[#00C4AA] font-bold">לקוח</span>
+            <p className="text-xs text-[#8B8FA8]">אהלן, יש לכם מקום ל-4 אנשים היום בערב?</p>
+          </div>
+          <div className="flex flex-col gap-2 p-3 rounded-xl bg-[#00C4AA]/10 self-start max-w-[80%] border border-[#00C4AA]/20">
+            <span className="text-[10px] text-[#00C4AA] font-bold">Sherlocked AI</span>
+            <p className="text-xs text-[#E8EAFF]">שלום! בטח, היום בערב נשארו לנו חדרים פנויים ב-20:30 וב-22:00. תרצה שאשלח לך לינק להזמנה?</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Settings Tab ─────────────────────────────────────────────────────────────
 
 function SettingsTab() {
@@ -625,6 +717,7 @@ export default function AdminWhatsAppPage() {
     { id: 'status',    label: '📡 חיבור' },
     { id: 'templates', label: '📋 תבניות' },
     { id: 'manual',    label: '📤 שלח הודעה' },
+    { id: 'ai',        label: '🤖 AI' },
     { id: 'log',       label: '📊 לוג' },
     { id: 'settings',  label: '⚙️ הגדרות' },
   ]
@@ -670,6 +763,7 @@ export default function AdminWhatsAppPage() {
       {tab === 'templates' && <TemplatesTab />}
       {tab === 'manual' && <ManualTab />}
       {tab === 'log' && <LogTab />}
+      {tab === 'ai' && <AiTab />}
       {tab === 'settings' && <SettingsTab />}
     </div>
   )

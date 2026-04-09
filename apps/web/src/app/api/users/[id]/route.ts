@@ -12,7 +12,7 @@ export async function GET(
     const supabase = getAdminClient()
     const { data, error } = await supabase
       .from('user_profiles')
-      .select('id, full_name, role, active')
+      .select('id, full_name, role, active, phone, id_number, hourly_rate, employment_type, global_monthly_salary, travel_per_shift, max_travel_monthly, overtime_eligible, vacation_pay_eligible, monthly_health_eligible, monthly_health_amount')
       .eq('id', params.id)
       .single()
 

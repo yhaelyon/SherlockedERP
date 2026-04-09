@@ -77,6 +77,18 @@ export interface AuthUser {
   name: string
   role: Role
   active: boolean
+  phone?: string
+  idNumber?: string
+  startDate?: string
+  hourlyRate?: number
+  employmentType?: 'hourly' | 'global'
+  globalMonthlySalary?: number | null
+  travelPerShift?: number
+  maxTravelMonthly?: number
+  overtimeEligible?: boolean
+  vacationPayEligible?: boolean
+  monthlyHealthEligible?: boolean
+  monthlyHealthAmount?: number | null
 }
 
 export interface StoredUser extends AuthUser {
@@ -84,6 +96,15 @@ export interface StoredUser extends AuthUser {
   phone?: string
   idNumber?: string
   startDate?: string
+  hourlyRate?: number
+  employmentType?: 'hourly' | 'global'
+  globalMonthlySalary?: number | null
+  travelPerShift?: number
+  maxTravelMonthly?: number
+  overtimeEligible?: boolean
+  vacationPayEligible?: boolean
+  monthlyHealthEligible?: boolean
+  monthlyHealthAmount?: number | null
 }
 
 // ─── Context ────────────────────────────────────────────────────────────────
@@ -125,6 +146,18 @@ async function loadProfile(userId: string, email: string): Promise<AuthUser | nu
       name: data.full_name,
       role: data.role as Role,
       active: data.active,
+      phone: data.phone,
+      idNumber: data.id_number,
+      startDate: data.created_at?.split('T')[0], // derived from created_at or fetch from DB
+      hourlyRate: data.hourly_rate,
+      employmentType: data.employment_type,
+      globalMonthlySalary: data.global_monthly_salary,
+      travelPerShift: data.travel_per_shift,
+      maxTravelMonthly: data.max_travel_monthly,
+      overtimeEligible: data.overtime_eligible,
+      vacationPayEligible: data.vacation_pay_eligible,
+      monthlyHealthEligible: data.monthly_health_eligible,
+      monthlyHealthAmount: data.monthly_health_amount,
     }
   } catch (e) {
     console.error('[Auth] loadProfile failed:', e)
