@@ -95,7 +95,7 @@ export default function AdminUsersPage() {
     e.preventDefault()
     setError('')
 
-    if (!editingId && form.password.length < 6) {
+    if (!editingId && (!form.password || form.password.length < 6)) {
       setError('סיסמה חייבת להכיל לפחות 6 תווים')
       return
     }
