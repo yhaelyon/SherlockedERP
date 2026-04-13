@@ -66,6 +66,7 @@ export default function BookingsCalendarPage() {
   const [rooms, setRooms] = useState<Room[]>([])
   const [selectedBranchId, setSelectedBranchId] = useState<string>('')
   const [selectedRoomId, setSelectedRoomId] = useState<string>('')
+  const [groupedRooms, setGroupedRooms] = useState<Record<string, Room[]>>({})
   const [currentMonth, setCurrentMonth] = useState(new Date())
   const [slots, setSlots] = useState<Slot[]>([])
   const [loading, setLoading] = useState(true)
@@ -87,26 +88,33 @@ export default function BookingsCalendarPage() {
     init()
   }, [])
 
-  // 2. Load Rooms when Branch changes
+  // 2. Load ALL Rooms and group them by branch
   useEffect(() => {
-    if (!selectedBranchId) return
-    async function fetchRooms() {
-      const { data } = await supabase
+    async function fetchAllRooms() {
+      const { data: roomsData } = await supabase
         .from('rooms')
-        .select('id, name, color_hex')
-        .eq('branch_id', selectedBranchId)
+        .select('*, branches(name)')
         .eq('status', 'active')
         .order('display_order')
-      
-      setRooms(data || [])
-      if (data && data.length > 0) {
-        setSelectedRoomId(data[0].id)
-      } else {
-        setSelectedRoomId('')
+
+      if (roomsData) {
+        const groups: Record<string, Room[]> = {}
+        roomsData.forEach((r: any) => {
+          const branchName = r.branches?.name || 'Uncategorized'
+          if (!groups[branchName]) groups[branchName] = []
+          groups[branchName].push(r)
+        })
+        setGroupedRooms(groups)
+
+        // Default selection: first room of first branch
+        const firstBranch = Object.keys(groups)[0]
+        if (firstBranch && groups[firstBranch].length > 0 && !selectedRoomId) {
+          setSelectedRoomId(groups[firstBranch][0].id)
+        }
       }
     }
-    fetchRooms()
-  }, [selectedBranchId])
+    fetchAllRooms()
+  }, [])
 
   // 3. Load Slots when Room or Month changes
   const fetchSlots = useCallback(async () => {
@@ -148,15 +156,21 @@ export default function BookingsCalendarPage() {
 
   // --- Helpers ---
   const getSlotColor = (slot: Slot) => {
-    if (slot.status === 'available') return '#2A2D3E' // Dark/Grey for empty
-    if (slot.status === 'pending') return '#F59E0B' // Orange for pending hold
-    
-    // Check booking status
+    // 1. Check for cancellation (either slot status or booking status)
     const booking = Array.isArray(slot.bookings) ? slot.bookings[0] : slot.bookings
-    if (booking?.status === 'pending') return '#FBBF24' // Yellow for waiting CC
-    if (booking?.status === 'confirmed') return '#10B981' // Green for confirmed
+    if (slot.status === 'cancelled' || booking?.status === 'cancelled') return '#EF4444' // Red
     
-    return '#4A9EFF' // Default blue
+    // 2. Check for empty
+    if (slot.status === 'available') return '#2A2D3E' // Grey
+    
+    // 3. Check for Pending (Waiting CC)
+    // Both slot 'pending' and booking 'pending' are treated as "Awaiting payment/Black"
+    if (slot.status === 'pending' || booking?.status === 'pending') return '#000000' // Black
+    
+    // 4. Confirmed (Reserved)
+    if (booking?.status === 'confirmed' || slot.status === 'booked') return '#10B981' // Green
+    
+    return '#4A9EFF' // Default blue for others (e.g. blocked)
   }
 
   const activeBooking = useMemo(() => {
@@ -198,14 +212,7 @@ export default function BookingsCalendarPage() {
           </div>
 
           <div className="flex items-center gap-3">
-             {/* Branch Selector Shortcut */}
-             <select 
-                value={selectedBranchId}
-                onChange={(e) => setSelectedBranchId(e.target.value)}
-                className="bg-[#13161F] text-sm text-[#E8EAFF] border border-[#2A2D3E] rounded-xl px-4 py-2 outline-none cursor-pointer focus:border-[#00C4AA] transition-all"
-             >
-                {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-             </select>
+             <div className="text-[10px] text-[#555870] font-black uppercase tracking-widest hidden lg:block">מערכת תפעולית</div>
           </div>
         </div>
 
@@ -250,9 +257,10 @@ export default function BookingsCalendarPage() {
                           className="text-[9px] font-bold py-1 px-1.5 rounded-md text-left truncate transition-all flex items-center gap-1.5 border border-transparent"
                           style={{ 
                             background: isSelected ? color : 'rgba(255,255,255,0.03)',
-                            color: isSelected ? '#13161F' : color,
+                            color: isSelected ? (color === '#000000' ? '#E8EAFF' : '#13161F') : (color === '#000000' ? '#FFF' : color),
                             opacity: isCurrentMonth ? 1 : 0.5,
-                            borderLeft: isSelected ? 'none' : `3px solid ${color}`
+                            borderLeft: isSelected ? 'none' : `3px solid ${color}`,
+                            border: color === '#000000' ? '1px solid rgba(255,255,255,0.1)' : 'none'
                           }}
                         >
                           <span className="opacity-70 flex-shrink-0">{format(new Date(slot.start_at), 'HH:mm')}</span>
@@ -285,10 +293,14 @@ export default function BookingsCalendarPage() {
               onChange={(e) => setSelectedRoomId(e.target.value)}
               className="w-full bg-[#1A1D27] text-[#E8EAFF] border border-[#2A2D3E] rounded-xl px-4 py-3 outline-none appearance-none cursor-pointer focus:border-[#00C4AA] font-bold text-sm shadow-inner"
             >
-              {rooms.map(r => (
-                <option key={r.id} value={r.id}>
-                  {r.name}
-                </option>
+              {Object.entries(groupedRooms).map(([branchName, branchRooms]) => (
+                <optgroup key={branchName} label={branchName} className="bg-[#13161F] text-[#8B8FA8] font-black uppercase text-[10px]">
+                  {branchRooms.map(r => (
+                    <option key={r.id} value={r.id} className="bg-[#1A1D27] text-[#E8EAFF] font-medium py-2">
+                      {r.name}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </select>
             <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-[#555870]">
@@ -330,10 +342,13 @@ export default function BookingsCalendarPage() {
                   </div>
                   <div className="text-[10px] text-[#555870] font-bold">ID: #{activeBooking.id.slice(0, 8)}</div>
                 </div>
-                <h2 className="text-3xl font-black text-[#E8EAFF] leading-none">
+                <h2 className="text-3xl font-black text-[#E8EAFF] leading-none mb-1">
                   {activeBooking.customers.first_name} {activeBooking.customers.last_name}
                 </h2>
-                <div className="flex items-center gap-2 text-[#8B8FA8] text-sm font-medium">
+                <div className="text-xs font-bold text-[#00C4AA] uppercase tracking-wide opacity-80">
+                  {rooms.find(r => r.id === selectedRoomId)?.name || 'Game'}
+                </div>
+                <div className="flex items-center gap-2 text-[#8B8FA8] text-sm font-medium pt-2">
                   <Clock size={14} />
                   <span>{format(new Date(selectedSlot.start_at), 'HH:mm')} | {format(new Date(selectedSlot.start_at), 'EEEE, d MMM', { locale: he })}</span>
                 </div>
