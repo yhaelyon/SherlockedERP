@@ -82,7 +82,7 @@ export default function EmployeesPage() {
         setFormError('אימייל זה כבר קיים במערכת')
         return
       }
-      if (form.password.length < 6) {
+      if (!form.password || form.password.length < 6) {
         setFormError('סיסמה חייבת להכיל לפחות 6 תווים')
         return
       }
