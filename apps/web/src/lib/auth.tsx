@@ -92,7 +92,7 @@ export interface AuthUser {
 }
 
 export interface StoredUser extends AuthUser {
-  password: string
+  password?: string
   phone?: string
   idNumber?: string
   startDate?: string
