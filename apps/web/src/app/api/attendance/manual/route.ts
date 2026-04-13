@@ -8,7 +8,7 @@ export async function POST(req: NextRequest) {
     const { user_id, branch_id, clock_in, clock_out, note } = await req.json()
 
     if (!user_id || !branch_id || !clock_in || !clock_out) {
-      return NextResponse.json({ error: 'Missing logic' }, { status: 400 })
+      return NextResponse.json({ error: 'חסרים פרטים לרישום ידני' }, { status: 400 })
     }
 
     const cIn = new Date(clock_in)

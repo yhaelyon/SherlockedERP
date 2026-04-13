@@ -119,8 +119,8 @@ export default function Sidebar() {
 
   return (
     <aside
-      className="fixed top-0 right-0 h-screen flex flex-col overflow-hidden z-40"
-      style={{ width: '256px', backgroundColor: '#13161F', borderLeft: '1px solid #2E3150' }}
+      className="w-64 h-full flex flex-col overflow-hidden flex-shrink-0"
+      style={{ backgroundColor: '#13161F', borderLeft: '1px solid #2E3150' }}
     >
       {/* Logo */}
       <div className="flex items-center gap-3 px-5 py-5" style={{ borderBottom: '1px solid #1E2035' }}>
@@ -137,7 +137,7 @@ export default function Sidebar() {
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 overflow-y-auto py-3 px-2">
+      <nav className="flex-1 overflow-y-auto min-h-0 py-3 px-2 custom-scrollbar">
         {NAV_ITEMS.filter((item) => !item.permission || can(item.permission)).map((item) => {
           const active = isActive(item.href)
           const childActive = isChildActive(item.children)

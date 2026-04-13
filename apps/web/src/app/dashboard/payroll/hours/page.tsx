@@ -12,7 +12,15 @@ const MONTHS = [
   'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר',
 ]
 
-interface Employee { id: string; name: string; role: string }
+interface Employee {
+  id: string
+  name: string
+  role: string
+  hourlyRate?: number
+  travelPerShift?: number
+  maxTravelMonthly?: number
+  healthAmount?: number
+}
 
 interface AttendanceLog {
   id: string
@@ -134,7 +142,15 @@ export default function PayrollHoursPage() {
       .then(r => r.json())
       .then(data => {
         if (Array.isArray(data)) {
-          setEmployees(data.map((u: { id: string; name: string; role: string }) => ({ id: u.id, name: u.name, role: u.role })))
+          setEmployees(data.map((u: any) => ({
+            id: u.id,
+            name: u.name,
+            role: u.role,
+            hourlyRate: u.hourlyRate,
+            travelPerShift: u.travelPerShift,
+            maxTravelMonthly: u.maxTravelMonthly,
+            healthAmount: u.monthlyHealthAmount,
+          })))
           // Default: select the logged-in user if they exist in the list, else first employee
           if (!selectedEmployeeId) {
             const selfId = me?.id
@@ -221,6 +237,38 @@ export default function PayrollHoursPage() {
     setManualSaving(false)
   }
 
+  // Monthly summary calculations
+  const totalDays = new Set(rows.map(r => r.date)).size
+  const travelEarned = Math.min(
+    (selectedEmployee?.travelPerShift ?? 0) * totalDays,
+    selectedEmployee?.maxTravelMonthly ?? 0
+  )
+  const hourlyRate = selectedEmployee?.hourlyRate ?? 0
+  const moneyH100 = (totals.h100 / 60) * hourlyRate
+  const moneyH125 = (totals.h125 / 60) * hourlyRate * 1.25
+  const moneyH150 = (totals.h150 / 60) * hourlyRate * 1.50
+  const moneyH200 = (totals.h200 / 60) * hourlyRate * 2.00
+  const moneyShabbat = (totals.shabbat / 60) * hourlyRate * 1.50 // Assuming 150% for Shabbat
+  const totalGross = moneyH100 + moneyH125 + moneyH150 + moneyH200 + moneyShabbat + travelEarned
+
+  function exportCsv() {
+    if (rows.length === 0) return
+    const headers = ['תאריך', 'יום', 'סניף', 'כניסה', 'יציאה', '100%', '125%', '150%', '200%', 'שבת', 'סה״כ', 'הערה']
+    const csvRows = rows.map(r => [
+      r.date, HEBREW_DAYS[r.dayOfWeek], r.branchName, r.in, r.out ?? '',
+      formatMinutes(r.h100), formatMinutes(r.h125), formatMinutes(r.h150),
+      formatMinutes(r.h200), formatMinutes(r.shabbat), formatMinutes(r.total), r.note
+    ])
+    
+    const content = [headers, ...csvRows].map(r => r.join(',')).join('\n')
+    const blob = new Blob(['\uFEFF' + content], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.setAttribute('href', url)
+    link.setAttribute('download', `payroll_${selectedEmployee?.name}_${monthStr}.csv`)
+    link.click()
+  }
+
   return (
     <div className="p-6">
       {/* Header */}
@@ -239,13 +287,13 @@ export default function PayrollHoursPage() {
             </div>
           )}
         </div>
-        {isManager && (
-          <button onClick={() => setShowManual(true)}
-            className="px-4 py-2 rounded-lg text-sm font-medium"
-            style={{ background: '#00C4AA', color: '#0F1117' }}>
-            + הוסף משמרת ידנית
           </button>
-        )}
+          <button onClick={exportCsv}
+            className="px-4 py-2 rounded-lg text-sm font-medium ml-2"
+            style={{ background: '#2A2D3E', color: '#E8EAFF', border: '1px solid #3F4254' }}>
+            📥 ייצוא CSV
+          </button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -292,6 +340,28 @@ export default function PayrollHoursPage() {
           </button>
         </div>
       </div>
+
+      {/* Financial Summary */}
+      {selectedEmployee && rows.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+          <div className="p-4 rounded-xl" style={{ background: '#1A1D27', border: '1px solid #2A2D3E' }}>
+            <div className="text-xs text-[#8B8FA8] mb-1">שכר שעה ברוטו</div>
+            <div className="text-xl font-bold text-[#E8EAFF] font-numbers">₪{hourlyRate}</div>
+          </div>
+          <div className="p-4 rounded-xl" style={{ background: '#1A1D27', border: '1px solid #2A2D3E' }}>
+            <div className="text-xs text-[#8B8FA8] mb-1">ימי עבודה בפועל</div>
+            <div className="text-xl font-bold text-[#E8EAFF] font-numbers">{totalDays}</div>
+          </div>
+          <div className="p-4 rounded-xl" style={{ background: '#1A1D27', border: '1px solid #2A2D3E' }}>
+            <div className="text-xs text-[#8B8FA8] mb-1">החזר נסיעות צבור</div>
+            <div className="text-xl font-bold text-[#00C4AA] font-numbers">₪{Math.round(travelEarned)}</div>
+          </div>
+          <div className="p-4 rounded-xl" style={{ background: 'rgba(0,196,170,0.1)', border: '1px solid #00C4AA33' }}>
+            <div className="text-xs text-[#00C4AA] mb-1">סה״כ שכר ברוטו משוער</div>
+            <div className="text-2xl font-bold text-[#00C4AA] font-numbers">₪{Math.round(totalGross).toLocaleString()}</div>
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="mb-4 px-4 py-2 rounded-lg text-sm" style={{ background: 'rgba(239,68,68,0.1)', color: '#F87171' }}>{error}</div>

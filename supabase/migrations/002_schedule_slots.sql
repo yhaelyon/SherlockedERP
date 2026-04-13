@@ -91,3 +91,78 @@ BEGIN
     AND block_expires_at < NOW();
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- ─── SLOT GENERATION LOGIC ──────────────────────────────────
+
+-- Function: Calculate and generate slots for a specific room and date
+CREATE OR REPLACE FUNCTION generate_slots_for_day(p_room_id UUID, p_date DATE)
+RETURNS void AS $$
+DECLARE
+  v_branch_id UUID;
+  v_open_time TIME;
+  v_close_time TIME;
+  v_duration INTERVAL := '60 minutes';
+  v_interval INTERVAL := '90 minutes';
+  v_offset INTERVAL := '40 minutes';
+  v_current_start TIMESTAMPTZ;
+  v_day_of_week INT;
+  v_tz TEXT;
+BEGIN
+  -- Get branch ID and timezone
+  SELECT b.id, b.timezone INTO v_branch_id, v_tz
+  FROM branches b
+  JOIN rooms r ON r.branch_id = b.id
+  WHERE r.id = p_room_id;
+
+  v_day_of_week := extract(dow from p_date);
+
+  -- Fetch branch hours for the specific day of week
+  SELECT open_time, close_time INTO v_open_time, v_close_time
+  FROM branch_hours
+  WHERE branch_id = v_branch_id AND day_of_week = v_day_of_week;
+
+  -- Skip if branch is closed or hours not defined
+  IF v_open_time IS NULL THEN
+    RETURN;
+  END IF;
+
+  -- Initial start time: open_time + offset
+  -- Use timezone from branch record
+  v_current_start := (p_date + v_open_time + v_offset) AT TIME ZONE v_tz;
+
+  -- Loop through the day and insert slots until close_time is reached
+  WHILE (v_current_start + v_duration) <= (p_date + v_close_time) AT TIME ZONE v_tz LOOP
+    INSERT INTO slots (room_id, start_at, end_at, status)
+    VALUES (p_room_id, v_current_start, v_current_start + v_duration, 'available')
+    ON CONFLICT (room_id, start_at) DO NOTHING;
+
+    v_current_start := v_current_start + v_interval;
+  END LOOP;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Function: Bulk generate slots for all active rooms for N days ahead
+CREATE OR REPLACE FUNCTION generate_all_slots_for_active_rooms(p_days_ahead INT DEFAULT 60)
+RETURNS void AS $$
+DECLARE
+  v_room RECORD;
+  v_date DATE;
+BEGIN
+  FOR v_room IN SELECT id FROM rooms WHERE status = 'active' LOOP
+    FOR i IN 0..(p_days_ahead - 1) LOOP
+      v_date := CURRENT_DATE + i;
+      PERFORM generate_slots_for_day(v_room.id, v_date);
+    END LOOP;
+  END LOOP;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- ─── AUTOMATION (pg_cron) ───────────────────────────────────
+
+-- Enable pg_cron if not already enabled (Supabase usually handles this)
+-- CREATE EXTENSION IF NOT EXISTS pg_cron;
+
+-- Schedule the job to run every night at 03:00 AM
+-- Note: 'cron' schema must be available and user must have permissions
+-- SELECT cron.schedule('generate-slots-daily', '0 3 * * *', 'SELECT generate_all_slots_for_active_rooms(60)');
+

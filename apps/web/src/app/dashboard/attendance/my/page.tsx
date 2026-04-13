@@ -268,6 +268,7 @@ export default function AttendanceMyPage() {
   const [selectedBranch, setSelectedBranch] = useState<Branch | null>(null)
   const [bypassLocation, setBypassLocation] = useState(false)
   const [showLocationBanner, setShowLocationBanner] = useState(false)
+  const [wifiToken, setWifiToken] = useState('')
 
   // History
   const [historyMonth, setHistoryMonth] = useState(currentMonthStr())
@@ -442,6 +443,7 @@ export default function AttendanceMyPage() {
           lat: coords?.lat,
           lng: coords?.lng,
           bypass_location: bypassLocation,
+          wifi_token: wifiToken,
         }),
       })
 
@@ -481,7 +483,7 @@ export default function AttendanceMyPage() {
         }
       } else {
         const method: string = data.verification_method ?? (bypassLocation ? 'bypass' : 'unknown')
-        const methodLabel = method === 'gps' ? 'GPS' : method === 'ip' ? 'IP' : 'bypass'
+        const methodLabel = method === 'gps' ? 'GPS' : method === 'ip' ? 'IP' : method === 'wifi_token' ? 'WiFi' : 'bypass'
         addLog({
           tag: action,
           ok: true,
@@ -499,9 +501,11 @@ export default function AttendanceMyPage() {
           // transiently return {active: null}, flipping status back to 'out'.
           setStatus('in'); setClockInTime(new Date())
           setSuccessMsg(`נרשמה כניסה למשמרת ✓ (${methodLabel})`)
+          setWifiToken('')
         } else {
           setStatus('out'); setClockInTime(null)
           setSuccessMsg(`נרשמה יציאה ממשמרת ✓ (${methodLabel})`)
+          setWifiToken('')
           loadHistory()
         }
 
@@ -711,6 +715,19 @@ export default function AttendanceMyPage() {
             </div>
           </div>
         )}
+
+        {/* WiFi Token Input */}
+        <div className="mb-6">
+          <div className="text-xs text-[#8B8FA8] mb-2 text-right">קוד נוכחות (6 ספרות מהטאבלט)</div>
+          <input
+            type="text"
+            maxLength={6}
+            placeholder="000000"
+            value={wifiToken}
+            onChange={(e) => setWifiToken(e.target.value.replace(/\D/g, ''))}
+            className="w-full bg-[#0F1117] border border-[#2A2D3E] rounded-xl px-4 py-3 text-center text-2xl font-numbers tracking-[0.5em] text-[#00C4AA] outline-none focus:border-[#00C4AA] placeholder:text-[#2A2D3E] placeholder:tracking-normal"
+          />
+        </div>
 
         {error && (
           <div className="text-sm mb-3 px-3 py-2 rounded-lg" style={{ background: 'rgba(239,68,68,0.1)', color: '#F87171' }}>{error}</div>
