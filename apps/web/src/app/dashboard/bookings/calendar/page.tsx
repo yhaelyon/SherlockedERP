@@ -204,6 +204,13 @@ export default function BookingsCalendarPage() {
               </button>
             </div>
             <button 
+              onClick={() => fetchSlots()}
+              disabled={loading}
+              className={`px-4 py-2 text-xs font-bold rounded-xl border border-[#2A2D3E] transition-all flex items-center gap-2 ${loading ? 'opacity-50' : 'bg-[#13161F] text-[#00C4AA] hover:bg-[#00C4AA]/10'}`}
+            >
+              <Search size={14} /> רענן
+            </button>
+            <button 
               onClick={() => setCurrentMonth(new Date())}
               className="px-4 py-2 text-xs font-bold bg-[#13161F] text-[#8B8FA8] rounded-xl border border-[#2A2D3E] hover:text-[#E8EAFF] transition-all"
             >

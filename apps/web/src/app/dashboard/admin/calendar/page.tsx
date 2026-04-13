@@ -162,13 +162,15 @@ export default function EnhancedCalendarBuilder() {
     updateSlots(roomId, slots)
   }
 
-  async function handleSaveTemplates() {
+  async function handleSaveAndSync() {
     setSavingSettings(true)
-    showMsg(`שומר תבניות עבור ${selectedDays.length} ימים...`, 'info', 'שמירה בתהליך')
+    setSyncing(true)
+    setConflicts([])
+    showMsg(`שומר תבניות ומסנכרן יומן עבור התאריכים ${syncStartDate} עד ${syncEndDate}...`, 'info', 'סנכרון בתהליך')
 
     try {
       let errors = 0
-      // Loop over EVERY selected day
+      // 1. Save Templates
       for (const day of selectedDays) {
         for (const roomId of Object.keys(templates)) {
           const res = await fetch('/api/admin/slots/templates', {
@@ -181,11 +183,28 @@ export default function EnhancedCalendarBuilder() {
       }
 
       if (errors > 0) throw new Error(`${errors} שגיאות אירעו במהלך השמירה`)
-      showMsg('תבניות נשמרו והוחלו על כל הימים שנבחרו! ✅', 'success', 'נשמר בהצלחה')
+
+      // 2. Automatically Sync to Calendar
+      const genRes = await fetch('/api/admin/slots/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ branch_id: selectedBranchId, start_date: syncStartDate, end_date: syncEndDate })
+      })
+      const genData = await genRes.json()
+      if (!genRes.ok) throw new Error(genData.details || genData.error || 'Sync failed')
+      
+      setConflicts(genData.conflicts || [])
+      
+      if (genData.conflicts && genData.conflicts.length > 0) {
+        showMsg(`התבניות נשמרו והיומן סונכרן (נמחקו ${genData.deleted} סלוטים מיותרים). שים לב: נמצאו ${genData.conflicts.length} קונפליקטים!`, 'warning', 'סנכרון עם קונפליקטים')
+      } else {
+        showMsg(`סנכרון הושלם בהצלחה! התבניות נשמרו והיומן עודכן לטווח התאריכים שנבחר. ✅`, 'success', 'תהליך הסתיים')
+      }
     } catch (e: any) {
-      showMsg(e.message, 'error', 'שגיאה בשמירה')
+      showMsg(e.message, 'error', 'שגיאת תהליך')
     } finally {
       setSavingSettings(false)
+      setSyncing(false)
     }
   }
 
@@ -216,35 +235,7 @@ export default function EnhancedCalendarBuilder() {
     setTemplates(prev => ({ ...prev, [roomId]: newRoomSlots }))
   }
 
-  async function handleApplyToCalendar() {
-    if (!confirm(`האם אתה בטוח שברצונך ליישם את התבניות מהתאריך ${syncStartDate} עד ${syncEndDate}? אלמונים קיימים יימחקו אם אינם מתאימים, אך הזמנות קיימות יישמרו וידווחו על קונפליקט במידת הצורך.`)) return
-    
-    setSyncing(true)
-    setConflicts([])
-    showMsg('מחיל תבניות ומנקה סלוטים מיותרים...', 'info', 'מסתנכרן')
-
-    try {
-      const res = await fetch('/api/admin/slots/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ branch_id: selectedBranchId, start_date: syncStartDate, end_date: syncEndDate })
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.details || data.error || 'Apply failed')
-      
-      setConflicts(data.conflicts || [])
-      
-      if (data.conflicts && data.conflicts.length > 0) {
-        showMsg(`היומן סונכרן (נמחקו ${data.deleted} סלוטים מיותרים). שים לב: נמצאו ${data.conflicts.length} קונפליקטים עם הזמנות!`, 'warning', 'קונפליקטים נמצאו')
-      } else {
-        showMsg(`היומן סונכרן (נוקה מסלוטים מיותרים: ${data.deleted}) 🗓️`, 'success', 'סונכרן בהצלחה')
-      }
-    } catch (e: any) {
-      showMsg(e.message, 'error', 'שגיאת סנכרון')
-    } finally {
-      setSyncing(false)
-    }
-  }
+   // Combined logic is now in handleSaveAndSync
 
   if (loading && branches.length === 0) return <div className="min-h-screen p-6 flex justify-center text-[#8B8FA8]">טוען ממשק...</div>
 
@@ -323,16 +314,29 @@ export default function EnhancedCalendarBuilder() {
           <p className="text-[#555870] text-xs mt-3">* התבנית היומית מוצגת לפי היום הראשון שנבחר ({HEBREW_DAYS[selectedDays[0]]}). שמירה תעדכן את כל הימים המסומנים.</p>
         </div>
 
-        <div className="flex flex-col md:flex-row items-center gap-3 flex-shrink-0">
-          <button
-            onClick={handleSaveTemplates}
-            disabled={savingSettings || loading}
-            className="h-11 px-8 rounded-xl text-sm font-bold transition-all shadow-lg hover:brightness-110 flex items-center gap-2"
-            style={{ background: 'linear-gradient(135deg, #00C4AA 0%, #009985 100%)', color: '#0F1117', opacity: savingSettings ? 0.6 : 1 }}
-          >
-            <Save size={18} />
-            {savingSettings ? 'שומר...' : `שמור תבנית ל-${selectedDays.length} ימים`}
-          </button>
+        {/* Sync Range (Integrated) */}
+        <div className="flex-shrink-0">
+          <label className="block text-xs text-[#8B8FA8] mb-3 uppercase tracking-wider font-bold">טווח תאריכים לסנכרון</label>
+          <div className="flex items-center gap-2 bg-[#13161F] p-1.5 rounded-xl border border-[#2A2D3E]">
+             <input type="date" value={syncStartDate} onChange={(e)=>setSyncStartDate(e.target.value)} className="bg-transparent text-[11px] text-[#E8EAFF] outline-none" style={{ colorScheme: 'dark' }} />
+             <div className="text-[#555870]">-</div>
+             <input type="date" value={syncEndDate} onChange={(e)=>setSyncEndDate(e.target.value)} className="bg-transparent text-[11px] text-[#E8EAFF] outline-none" style={{ colorScheme: 'dark' }} />
+          </div>
+        </div>
+
+        <div className="flex items-end">
+           <button
+             onClick={handleSaveAndSync}
+             disabled={savingSettings || syncing}
+             className="h-11 px-8 rounded-xl font-black text-xs flex items-center gap-2 shadow-lg transition-all active:scale-95"
+             style={{ 
+               background: (savingSettings || syncing) ? '#2A2D3E' : '#00C4AA', 
+               color: (savingSettings || syncing) ? '#8B8FA8' : '#0F1117',
+               boxShadow: (savingSettings || syncing) ? 'none' : '0 4px 20px rgba(0,196,170,0.3)'
+             }}
+           >
+             <Save size={16} /> {(savingSettings || syncing) ? 'מסנכרן...' : `שמור וסנכרן ל-${selectedDays.length} ימים`}
+           </button>
         </div>
       </div>
 
@@ -410,56 +414,7 @@ export default function EnhancedCalendarBuilder() {
         </div>
       )}
 
-      {/* Sync Footer Area */}
-      <div className="sticky bottom-0 left-0 right-0 p-5 flex justify-between items-center z-30 shadow-2xl mt-12 border-t" style={{ background: 'rgba(19,22,31,0.96)', backdropFilter: 'blur(16px)', borderTop: '1px solid #2A2D3E' }}>
-        <div className="flex flex-col gap-1 items-start max-w-xl">
-          <div className="flex items-center gap-3">
-             <Calendar size={22} color="#8B8FA8" />
-             <div className="font-extrabold text-base text-[#E8EAFF]">החלת תבניות וסנכרון יומן</div>
-          </div>
-          <p className="text-xs text-[#8B8FA8] mr-8 pr-1 leading-relaxed">פעולה זאת תייצר סלוטים חדשים ותנקה סלוטים פנויים שאינם בתבנית לטובת יומן נקי. הזמנות קיימות לעולם לא יימחקו.</p>
-        </div>
-
-        <div className="flex items-center gap-6 flex-shrink-0">
-          <div className="flex items-center gap-3 bg-[#0F1117] border border-[#2A2D3E] p-2 rounded-xl shadow-inner">
-            <div className="flex flex-col px-2">
-               <span className="text-[10px] text-[#555870] uppercase font-bold mb-0.5">מתאריך</span>
-               <input 
-                 type="date" 
-                 value={syncStartDate}
-                 onChange={(e) => setSyncStartDate(e.target.value)}
-                 className="bg-transparent text-sm w-32 outline-none text-[#E8EAFF] font-medium"
-                 style={{ colorScheme: 'dark' }}
-               />
-            </div>
-            <div className="w-[1px] h-8 bg-[#2A2D3E]" />
-            <div className="flex flex-col px-2">
-               <span className="text-[10px] text-[#555870] uppercase font-bold mb-0.5">עד תאריך</span>
-               <input 
-                 type="date" 
-                 value={syncEndDate}
-                 onChange={(e) => setSyncEndDate(e.target.value)}
-                 className="bg-transparent text-sm w-32 outline-none text-[#E8EAFF] font-medium"
-                 style={{ colorScheme: 'dark' }}
-               />
-            </div>
-          </div>
-          
-          <button
-            onClick={handleApplyToCalendar}
-            disabled={syncing}
-            className="h-12 px-8 rounded-xl font-extrabold transition-all hover:scale-105 active:scale-95 flex items-center gap-2 text-[15px]"
-            style={{ 
-              background: syncing ? '#22253A' : 'linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%)', 
-              color: syncing ? '#8B8FA8' : '#FFF',
-              boxShadow: syncing ? 'none' : '0 4px 20px rgba(139,92,246,0.4)',
-              border: '1px solid rgba(255,255,255,0.1)'
-            }}
-          >
-            {syncing ? 'מעדכן יומנים...' : 'עדכן יומנים'}
-          </button>
-        </div>
-      </div>
+      {/* Footer Area Removed - Now part of top controls */}
 
       {/* Conflicts Modal */}
       {conflicts.length > 0 && (
