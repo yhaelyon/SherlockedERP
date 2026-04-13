@@ -230,7 +230,7 @@ export default function EnhancedCalendarBuilder() {
         body: JSON.stringify({ branch_id: selectedBranchId, start_date: syncStartDate, end_date: syncEndDate })
       })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Apply failed')
+      if (!res.ok) throw new Error(data.details || data.error || 'Apply failed')
       
       setConflicts(data.conflicts || [])
       
