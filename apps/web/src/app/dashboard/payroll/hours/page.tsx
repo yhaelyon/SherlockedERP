@@ -287,9 +287,17 @@ export default function PayrollHoursPage() {
             </div>
           )}
         </div>
-          </button>
+
+        <div className="flex items-center gap-2">
+          {isManager && (
+            <button onClick={() => setShowManual(true)}
+              className="px-4 py-2 rounded-lg text-sm font-bold shadow-lg transition-all hover:brightness-110 flex items-center gap-2"
+              style={{ background: 'linear-gradient(135deg, #00C4AA 0%, #009985 100%)', color: '#0F1117' }}>
+              + הוספת משמרת
+            </button>
+          )}
           <button onClick={exportCsv}
-            className="px-4 py-2 rounded-lg text-sm font-medium ml-2"
+            className="px-4 py-2 rounded-lg text-sm font-medium"
             style={{ background: '#2A2D3E', color: '#E8EAFF', border: '1px solid #3F4254' }}>
             📥 ייצוא CSV
           </button>
