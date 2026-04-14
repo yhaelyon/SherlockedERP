@@ -223,7 +223,7 @@ export default function BookingsCalendarPage() {
                   onClick={() => dateInputRef.current?.showPicker()}
                   className="px-4 text-sm font-black text-[#E8EAFF] min-w-[160px] text-center uppercase tracking-wider hover:text-[#00C4AA] transition-colors flex items-center justify-center gap-2"
                  >
-                   <CalendarIcon size={14} className="opacity-50" />
+                   <CalendarIcon size={18} className="opacity-50" />
                    {viewMode === 'month' ? format(currentDate, 'MMMM yyyy', { locale: he }) : 
                     viewMode === 'week' ? `שבוע ה-${format(currentDate, 'd MMM', { locale: he })}` :
                     format(currentDate, 'EEEE, d MMM', { locale: he })}
@@ -243,7 +243,7 @@ export default function BookingsCalendarPage() {
                   else if (viewMode === 'week') setCurrentDate(prev => addWeeks(prev, 1))
                   else setCurrentDate(prev => addDays(prev, 1))
                }} className="p-2 hover:bg-[#22253A] rounded-lg text-[#8B8FA8]">
-                 <ChevronLeft size={20} />
+                 <ChevronLeft size={24} />
                </button>
              </div>
              
@@ -305,19 +305,19 @@ export default function BookingsCalendarPage() {
 
                         return (
                           <button key={slot.id} onClick={() => setSelectedSlot(slot)} 
-                            className="text-[9px] font-black py-1 px-2 rounded-md transition-all flex items-center justify-between border border-transparent shadow-md"
+                            className="text-[11px] md:text-[12px] font-black py-1.5 px-2.5 rounded-md transition-all flex items-center justify-between border border-transparent shadow-md"
                             style={{ 
-                              background: isSelected ? color : 'rgba(255,255,255,0.05)',
-                              color: '#FFFFFF', // FORCED HIGH CONTRAST WHITE
-                              borderRight: `4px solid ${color}`,
-                              textShadow: '0 1px 2px rgba(0,0,0,0.5)'
+                              background: isSelected ? color : 'rgba(255,255,255,0.06)',
+                              color: '#FFFFFF', 
+                              borderRight: `5px solid ${color}`,
+                              textShadow: '0 1px 3px rgba(0,0,0,0.8)'
                             }}
                           >
-                            <div className="flex items-center gap-1">
-                               {isNight && <Moon size={10} className="text-[#FBBF24]" />}
+                            <div className="flex items-center gap-1.5">
+                               {isNight && <Moon size={12} className="text-[#FBBF24]" />}
                                <span className="flex-shrink-0">{format(slotTime, 'HH:mm')}</span>
                             </div>
-                            {(viewMode === 'week' || booking) && <span className="truncate mr-2 text-right flex-1">{booking ? booking.customers.first_name : 'פנוי'}</span>}
+                            {(viewMode === 'week' || booking) && <span className="truncate mr-2 text-right flex-1 font-bold">{booking ? booking.customers.first_name : 'פנוי'}</span>}
                           </button>
                         )
                       })}
