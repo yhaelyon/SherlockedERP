@@ -33,10 +33,9 @@ const NAV_ITEMS: NavItem[] = [
     children: [
       { label: 'יומן משחקים', href: '/dashboard/bookings/calendar', permission: 'bookings' },
       { label: 'רשימת לקוחות', href: '/dashboard/bookings/customers', permission: 'bookings' },
-      { label: 'הגדרות סלוטים', href: '/dashboard/bookings/slots/settings', permission: 'bookings' },
+      { label: 'הגדרות סלוטים', href: '/dashboard/admin/calendar', permission: 'admin' },
       { label: 'הוספת סלוטים', href: '/dashboard/bookings/slots/add', permission: 'bookings' },
       { label: 'מחיקת סלוטים', href: '/dashboard/bookings/slots/delete', permission: 'bookings' },
-      { label: 'הגדרות יומן', href: '/dashboard/bookings/journal-settings', permission: 'bookings' },
       { label: 'ייצוא / ייבוא', href: '/dashboard/bookings/export', permission: 'bookings' },
     ],
   },
@@ -84,7 +83,6 @@ const NAV_ITEMS: NavItem[] = [
 const SETTINGS_CHILDREN: NavChild[] = [
   { label: 'פרטי חברה', href: '/dashboard/admin/company', permission: 'admin' },
   { label: 'חדרים ומחירים', href: '/dashboard/admin/rooms', permission: 'admin' },
-  { label: 'הגדרות יומן', href: '/dashboard/admin/calendar', permission: 'admin' },
   { label: 'הגדרות הזמנות', href: '/dashboard/admin/booking-settings', permission: 'admin' },
   { label: 'הגדרות משמרות', href: '/dashboard/admin/shifts-settings', permission: 'admin' },
   { label: 'הגדרות נוכחות', href: '/dashboard/admin/attendance-settings', permission: 'admin' },

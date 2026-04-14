@@ -34,7 +34,8 @@ import {
   Search,
   LayoutGrid,
   Columns,
-  ListTodo
+  ListTodo,
+  Moon
 } from 'lucide-react'
 
 // --- Types ---
@@ -164,9 +165,32 @@ export default function BookingsCalendarPage() {
     }
   }, [currentDate, viewMode])
 
-  const getSlotsForDay = (day: Date) => {
-    return slots.filter(s => isSameDay(parseISO(s.start_at), day))
-  }
+    // Date Navigation Logic: Grouping slots 00:00-06:00 with previous day
+    const getSlotsForDay = (day: Date) => {
+      const nextDay = addDays(day, 1)
+      return slots.filter(s => {
+        const d = parseISO(s.start_at)
+        const h = d.getHours()
+        // If it's current day and after 6am
+        if (isSameDay(d, day) && h >= 6) return true
+        // If it's next day and before 6am
+        if (isSameDay(d, nextDay) && h < 6) return true
+        return false
+      }).sort((a, b) => {
+        // Custom sort: ensure 00:00-05:59 slots are treated as "later" than 23:00 on the operational day
+        const da = parseISO(a.start_at)
+        const db = parseISO(b.start_at)
+        let ha = da.getHours()
+        let hb = db.getHours()
+        
+        // Normalize morning hours (0-5) to be considered 'after 24'
+        if (ha < 6) ha += 24
+        if (hb < 6) hb += 24
+        
+        if (ha !== hb) return ha - hb
+        return da.getMinutes() - db.getMinutes()
+      })
+    }
 
   const getSlotColor = (slot: Slot) => {
     const booking = Array.isArray(slot.bookings) ? slot.bookings[0] : slot.bookings
@@ -276,9 +300,12 @@ export default function BookingsCalendarPage() {
                         // Monthly View logic: Only show non-available (Confirmed/Pending)
                         if (viewMode === 'month' && slot.status === 'available') return null;
 
+                        const slotTime = new Date(slot.start_at)
+                        const isNight = slotTime.getHours() < 6
+
                         return (
                           <button key={slot.id} onClick={() => setSelectedSlot(slot)} 
-                            className="text-[10px] font-black py-1 px-2 rounded-md transition-all flex items-center justify-between border border-transparent shadow-md"
+                            className="text-[9px] font-black py-1 px-2 rounded-md transition-all flex items-center justify-between border border-transparent shadow-md"
                             style={{ 
                               background: isSelected ? color : 'rgba(255,255,255,0.05)',
                               color: '#FFFFFF', // FORCED HIGH CONTRAST WHITE
@@ -286,7 +313,10 @@ export default function BookingsCalendarPage() {
                               textShadow: '0 1px 2px rgba(0,0,0,0.5)'
                             }}
                           >
-                            <span className="flex-shrink-0">{format(new Date(slot.start_at), 'HH:mm')}</span>
+                            <div className="flex items-center gap-1">
+                               {isNight && <Moon size={10} className="text-[#FBBF24]" />}
+                               <span className="flex-shrink-0">{format(slotTime, 'HH:mm')}</span>
+                            </div>
                             {(viewMode === 'week' || booking) && <span className="truncate mr-2 text-right flex-1">{booking ? booking.customers.first_name : 'פנוי'}</span>}
                           </button>
                         )
@@ -352,7 +382,12 @@ function AgendaItem({ slot, onClick, isSelected, color }: any) {
   const booking = Array.isArray(slot.bookings) ? slot.bookings[0] : slot.bookings
   return (
     <button onClick={onClick} className={`w-full p-5 rounded-3xl border transition-all flex items-center gap-5 ${isSelected ? 'ring-2 ring-inset ring-[#00C4AA]' : ''}`} style={{ background: '#13161F', borderColor: isSelected ? '#00C4AA' : '#2A2D3E' }}>
-       <div className="w-20 h-20 rounded-2xl flex flex-col items-center justify-center font-black" style={{ background: color }}>
+       <div className="w-20 h-20 rounded-2xl flex flex-col items-center justify-center font-black relative" style={{ background: color }}>
+          {new Date(slot.start_at).getHours() < 6 && (
+            <div className="absolute top-1 left-1">
+              <Moon size={12} className="text-[#FBBF24]" />
+            </div>
+          )}
           <div className="text-xs text-[#000] opacity-40 uppercase mb-1">שעה</div>
           <div className="text-2xl leading-none" style={{ color: '#FFFFFF', textShadow: '0 2px 4px rgba(0,0,0,0.5)' }}>{format(new Date(slot.start_at), 'HH:mm')}</div>
        </div>
