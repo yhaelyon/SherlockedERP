@@ -33,7 +33,7 @@ const NAV_ITEMS: NavItem[] = [
     children: [
       { label: 'יומן משחקים', href: '/dashboard/bookings/calendar', permission: 'bookings' },
       { label: 'רשימת לקוחות', href: '/dashboard/bookings/customers', permission: 'bookings' },
-      { label: 'הגדרות סלוטים', href: '/dashboard/admin/calendar', permission: 'admin' },
+      { label: 'הגדרות יומן', href: '/dashboard/admin/calendar', permission: 'admin' },
       { label: 'הוספת סלוטים', href: '/dashboard/bookings/slots/add', permission: 'bookings' },
       { label: 'מחיקת סלוטים', href: '/dashboard/bookings/slots/delete', permission: 'bookings' },
       { label: 'ייצוא / ייבוא', href: '/dashboard/bookings/export', permission: 'bookings' },
