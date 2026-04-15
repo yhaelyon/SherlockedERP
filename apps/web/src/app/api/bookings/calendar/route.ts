@@ -14,6 +14,15 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Missing required parameters' }, { status: 400 })
     }
 
+    // Adjust dates for Israel timezone (UTC+3)
+    // Start: 21:00 UTC of the day before
+    // End: 03:00 UTC of the day after
+    const startAt = new Date(`${startDate}T00:00:00Z`)
+    startAt.setUTCHours(startAt.getUTCHours() - 3)
+    
+    const endAt = new Date(`${endDate}T23:59:59Z`)
+    endAt.setUTCHours(endAt.getUTCHours() - 3)
+
     const supabase = getAdminClient()
 
     // Fetch slots with joined booking and customer data
@@ -27,8 +36,8 @@ export async function GET(req: NextRequest) {
         )
       `)
       .eq('room_id', roomId)
-      .gte('start_at', startDate)
-      .lte('start_at', endDate)
+      .gte('start_at', startAt.toISOString())
+      .lte('start_at', endAt.toISOString())
       .order('start_at', { ascending: true })
 
     if (error) {
