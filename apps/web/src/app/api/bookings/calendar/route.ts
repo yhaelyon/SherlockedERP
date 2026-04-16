@@ -14,14 +14,19 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Missing required parameters' }, { status: 400 })
     }
 
-    // Adjust dates for Israel timezone (UTC+3)
-    // Start: 21:00 UTC of the day before
-    // End: 03:00 UTC of the day after
-    const startAt = new Date(`${startDate}T00:00:00Z`)
-    startAt.setUTCHours(startAt.getUTCHours() - 3)
-    
-    const endAt = new Date(`${endDate}T23:59:59Z`)
-    endAt.setUTCHours(endAt.getUTCHours() - 3)
+    // Israel operational day: 06:00 local → 06:00 local next day
+    // In UTC (Israel = UTC+3): 03:00 UTC → 03:00 UTC next day
+    //
+    // Start window: startDate at 03:00 UTC = 06:00 Israel (beginning of operational day)
+    // End window:   day AFTER endDate at 03:00 UTC = 06:00 Israel next day
+    //               This captures all after-midnight slots (00:30, 02:00, etc.)
+    //               which are stored as UTC on the next calendar day
+    const startAt = new Date(`${startDate}T03:00:00Z`)
+
+    // End = next day after endDate at 03:00 UTC
+    const endDayAfter = new Date(`${endDate}T03:00:00Z`)
+    endDayAfter.setUTCDate(endDayAfter.getUTCDate() + 1)
+    const endAt = endDayAfter
 
     const supabase = getAdminClient()
 
