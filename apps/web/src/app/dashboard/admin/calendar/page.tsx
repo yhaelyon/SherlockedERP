@@ -30,6 +30,7 @@ export default function EnhancedCalendarBuilder() {
   const [syncEndDate, setSyncEndDate] = useState(format(addDays(new Date(), 30), 'yyyy-MM-dd'))
   const [syncing, setSyncing] = useState(false)
   const [conflicts, setConflicts] = useState<any[]>([])
+  const [autofillInterval, setAutofillInterval] = useState(90)
 
   const supabase = createClient()
 
@@ -146,8 +147,26 @@ export default function EnhancedCalendarBuilder() {
   function addSlot(roomId: string) {
     const slots = [...templates[roomId]]
     const lastSlot = slots.length > 0 ? slots[slots.length - 1] : null
-    slots.push(lastSlot ? { ...lastSlot } : { time: '09:00', is_next_day: false })
+    
+    if (lastSlot) {
+      const [h, m] = lastSlot.time.split(':').map(Number)
+      let totalMins = h * 60 + m + autofillInterval
+      const newH = Math.floor(totalMins / 60)
+      const newM = totalMins % 60
+      const clockH = newH % 24
+      const isNextDay = lastSlot.is_next_day || newH >= 24
+      const timeStr = `${String(clockH).padStart(2, '0')}:${String(newM).padStart(2, '0')}`
+      slots.push({ time: timeStr, is_next_day: isNextDay })
+    } else {
+      slots.push({ time: '09:00', is_next_day: false })
+    }
     updateSlots(roomId, slots)
+  }
+
+  function clearColumnExceptFirst(roomId: string) {
+    if (templates[roomId] && templates[roomId].length > 1) {
+      setTemplates(prev => ({ ...prev, [roomId]: [prev[roomId][0]] }))
+    }
   }
 
   function removeSlot(roomId: string, idx: number) {
@@ -221,7 +240,7 @@ export default function EnhancedCalendarBuilder() {
     
     // Add 11 more slots (total 12)
     for (let i = 0; i < 11; i++) {
-      totalMins += 90
+      totalMins += autofillInterval
       const newH = Math.floor(totalMins / 60)
       const newM = totalMins % 60
       
@@ -315,12 +334,26 @@ export default function EnhancedCalendarBuilder() {
         </div>
 
         {/* Sync Range (Integrated) */}
-        <div className="flex-shrink-0">
-          <label className="block text-xs text-[#8B8FA8] mb-3 uppercase tracking-wider font-bold">טווח תאריכים לסנכרון</label>
-          <div className="flex items-center gap-2 bg-[#13161F] p-1.5 rounded-xl border border-[#2A2D3E]">
-             <input type="date" value={syncStartDate} onChange={(e)=>setSyncStartDate(e.target.value)} className="bg-transparent text-[11px] text-[#E8EAFF] outline-none" style={{ colorScheme: 'dark' }} />
-             <div className="text-[#555870]">-</div>
-             <input type="date" value={syncEndDate} onChange={(e)=>setSyncEndDate(e.target.value)} className="bg-transparent text-[11px] text-[#E8EAFF] outline-none" style={{ colorScheme: 'dark' }} />
+        <div className="flex-shrink-0 flex gap-4">
+          <div>
+            <label className="block text-xs text-[#8B8FA8] mb-3 uppercase tracking-wider font-bold text-center">מרווח (דק')</label>
+            <div className="flex items-center gap-2 bg-[#13161F] p-1.5 rounded-xl border border-[#2A2D3E] w-20">
+               <input 
+                 type="number" 
+                 value={autofillInterval} 
+                 onChange={(e) => setAutofillInterval(parseInt(e.target.value) || 0)} 
+                 className="bg-transparent text-center text-[12px] text-[#E8EAFF] outline-none w-full font-bold" 
+               />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs text-[#8B8FA8] mb-3 uppercase tracking-wider font-bold">טווח תאריכים לסנכרון</label>
+            <div className="flex items-center gap-2 bg-[#13161F] p-1.5 rounded-xl border border-[#2A2D3E]">
+               <input type="date" value={syncStartDate} onChange={(e)=>setSyncStartDate(e.target.value)} className="bg-transparent text-[11px] text-[#E8EAFF] outline-none" style={{ colorScheme: 'dark' }} />
+               <div className="text-[#555870]">-</div>
+               <input type="date" value={syncEndDate} onChange={(e)=>setSyncEndDate(e.target.value)} className="bg-transparent text-[11px] text-[#E8EAFF] outline-none" style={{ colorScheme: 'dark' }} />
+            </div>
           </div>
         </div>
 
@@ -350,18 +383,27 @@ export default function EnhancedCalendarBuilder() {
                <div className="w-full text-center p-10 text-[#555870]">לא נמצאו חדרים פעילים בסניף זה.</div>
             ) : rooms.map(room => (
               <div key={room.id} className="w-56 flex-shrink-0 flex flex-col rounded-xl overflow-hidden border border-[#2A2D3E] shadow-sm bg-[#13161F]">
-                <button 
-                  onClick={() => autoFillRoom(room.id)}
-                  title="לחץ כאן לשכפול אוטומטי של השעות (כל 90 דק')"
-                  className="py-4 px-3 bg-[#1A1D27] text-center font-extrabold text-[#E8EAFF] border-b border-[#2A2D3E] tracking-wide hover:bg-[#22253A] transition-colors cursor-pointer w-full group"
-                >
-                  <div className="flex items-center justify-center gap-2">
-                    {room.name}
-                    <div className="w-4 h-4 rounded-full bg-[#00C4AA]/10 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Plus size={10} className="text-[#00C4AA]" />
+                <div className="flex bg-[#1A1D27] border-b border-[#2A2D3E] group relative items-center">
+                  <button 
+                    onClick={() => autoFillRoom(room.id)}
+                    title="לחץ כאן לשכפול אוטומטי של השעות (לפי המרווח שנבחר)"
+                    className="flex-1 py-4 px-3 text-center font-extrabold text-[#E8EAFF] tracking-wide hover:bg-[#22253A] transition-colors cursor-pointer"
+                  >
+                    <div className="flex items-center justify-center gap-2">
+                      {room.name}
+                      <div className="w-4 h-4 rounded-full bg-[#00C4AA]/10 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Plus size={10} className="text-[#00C4AA]" />
+                      </div>
                     </div>
-                  </div>
-                </button>
+                  </button>
+                  <button 
+                    onClick={() => clearColumnExceptFirst(room.id)}
+                    title="מחק הכל חוץ מהסלוט הראשון"
+                    className="absolute right-2 p-2 rounded-lg text-[#555870] hover:text-[#F87171] hover:bg-red-500/10 transition-all opacity-0 group-hover:opacity-100"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
                 
                 <div className="p-3 flex-1 flex flex-col gap-2.5 min-h-[450px]">
                   {templates[room.id]?.map((slot, idx) => (
