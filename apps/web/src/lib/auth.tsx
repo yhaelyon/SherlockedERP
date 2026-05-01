@@ -44,24 +44,26 @@ export type Permission =
   | 'payroll_manual'
   | 'admin'
   | 'user_management'
+  | 'whatsapp_inbox'
 
 const PERMISSIONS: Record<Role, Permission[]> = {
   admin: [
     'dashboard', 'shifts', 'bookings', 'payments', 'tasks', 'vouchers',
     'operator_info', 'employees', 'attendance', 'payroll', 'payroll_manual',
-    'admin', 'user_management',
+    'admin', 'user_management', 'whatsapp_inbox',
   ],
   manager: [
     'dashboard', 'shifts', 'bookings', 'payments', 'tasks', 'vouchers',
     'operator_info', 'employees', 'attendance', 'payroll', 'payroll_manual',
-    'admin', 'user_management',
+    'admin', 'user_management', 'whatsapp_inbox',
   ],
   shift_lead: [
     'dashboard', 'shifts', 'bookings', 'payments', 'tasks', 'vouchers',
     'operator_info', 'employees', 'attendance', 'payroll', 'payroll_manual',
+    'whatsapp_inbox',
   ],
   staff: [
-    'dashboard', 'shifts', 'operator_info', 'attendance',
+    'dashboard', 'shifts', 'operator_info', 'attendance', 'whatsapp_inbox',
   ],
 }
 

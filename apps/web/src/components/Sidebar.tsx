@@ -21,6 +21,7 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { label: 'לוח בקרה', href: '/dashboard', icon: '🏠', permission: 'dashboard' },
+  { label: 'וואטסאפ', href: '/dashboard/whatsapp', icon: '💬', permission: 'whatsapp_inbox' },
   {
     label: 'משמרות', href: '/dashboard/shifts', icon: '📋', permission: 'shifts',
     children: [

@@ -4,6 +4,37 @@
  * Config is read from env vars: EVOLUTION_API_URL, EVOLUTION_API_KEY, EVOLUTION_INSTANCE_NAME
  */
 
+import { existsSync, readFileSync } from 'fs'
+import { resolve } from 'path'
+
+function loadRootEnvForServerRoutes() {
+  if (typeof window !== 'undefined') return
+
+  const candidates = [
+    resolve(process.cwd(), '../../.env'),
+    resolve(process.cwd(), '.env'),
+  ]
+
+  for (const file of candidates) {
+    if (!existsSync(file)) continue
+
+    const lines = readFileSync(file, 'utf8').split(/\r?\n/)
+    for (const line of lines) {
+      const trimmed = line.trim()
+      if (!trimmed || trimmed.startsWith('#') || !trimmed.includes('=')) continue
+
+      const index = trimmed.indexOf('=')
+      const key = trimmed.slice(0, index).trim()
+      const value = trimmed.slice(index + 1).trim().replace(/^["']|["']$/g, '')
+      if (key && process.env[key] === undefined) process.env[key] = value
+    }
+
+    return
+  }
+}
+
+loadRootEnvForServerRoutes()
+
 const BASE_URL = process.env.EVOLUTION_API_URL ?? ''
 const API_KEY  = process.env.EVOLUTION_API_KEY ?? ''
 export const INSTANCE = process.env.EVOLUTION_INSTANCE_NAME ?? 'sherlocked'

@@ -12,13 +12,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   const isLoginPage = pathname === '/dashboard/login'
 
-  /* Temporarily disabled for preview
   useEffect(() => {
     if (!loading && !user && !isLoginPage) {
       router.replace('/dashboard/login')
     }
   }, [user, loading, router, isLoginPage])
-  */
 
   // Login page: render without sidebar/guard
   if (isLoginPage) return <>{children}</>
@@ -42,7 +40,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     )
   }
 
-  // if (!user) return null
+  if (!user) return null
 
   return (
     <div className="h-screen w-full bg-[#0F1117] flex overflow-hidden isolate" dir="rtl">

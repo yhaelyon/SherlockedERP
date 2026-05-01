@@ -55,6 +55,14 @@ export async function GET() {
       lastConnected: config?.last_connected ?? null,
     })
   } catch {
+    if (config?.status === 'connected') {
+      return NextResponse.json({
+        status: 'connected',
+        phoneNumber: config.phone_number ?? null,
+        lastConnected: config.last_connected ?? null,
+      })
+    }
+
     return NextResponse.json({
       status: config?.status ?? 'disconnected',
       phoneNumber: config?.phone_number ?? null,

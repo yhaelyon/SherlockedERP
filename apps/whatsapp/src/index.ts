@@ -69,7 +69,10 @@ app.post('/webhook', async (req, res) => {
 
   try {
     await axios.post(`${MAIN_API_URL}/api/v1/whatsapp/webhook`, payload, {
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': process.env.WHATSAPP_WEBHOOK_SECRET ?? EVOLUTION_KEY ?? '',
+      },
     })
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err)

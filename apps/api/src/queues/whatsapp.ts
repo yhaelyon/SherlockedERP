@@ -1,4 +1,4 @@
-import { Queue, Worker } from 'bullmq'
+import { Queue, Worker, type ConnectionOptions } from 'bullmq'
 import { redis } from '../lib/redis'
 import { supabase } from '../lib/supabase'
 import axios from 'axios'
@@ -6,9 +6,10 @@ import axios from 'axios'
 const EVOLUTION_URL = process.env.EVOLUTION_API_URL
 const EVOLUTION_KEY = process.env.EVOLUTION_API_KEY
 const INSTANCE = process.env.EVOLUTION_INSTANCE_NAME ?? 'sherlocked-main'
+const bullConnection = redis as unknown as ConnectionOptions
 
 export const waQueue = new Queue('whatsapp', {
-  connection: redis,
+  connection: bullConnection,
   defaultJobOptions: {
     attempts: 3,
     backoff: { type: 'exponential', delay: 5000 },
@@ -70,7 +71,7 @@ const worker = new Worker(
     })
   },
   {
-    connection: redis,
+    connection: bullConnection,
     limiter: { max: 20, duration: 60000 }, // 20 per minute
     concurrency: 1,
   }
