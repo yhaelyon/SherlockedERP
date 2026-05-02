@@ -119,6 +119,7 @@ export async function getQRCode(): Promise<{ base64?: string; code?: string }> {
 
 export async function setWebhook(webhookUrl: string): Promise<unknown> {
   return request('POST', `/webhook/set/${INSTANCE}`, {
+    enabled: true,
     url: webhookUrl,
     events: [
       'CONNECTION_UPDATE',
