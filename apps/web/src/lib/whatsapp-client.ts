@@ -117,6 +117,21 @@ export async function getQRCode(): Promise<{ base64?: string; code?: string }> {
   return request('GET', `/instance/connect/${INSTANCE}`)
 }
 
+export async function setWebhook(webhookUrl: string): Promise<unknown> {
+  return request('POST', `/webhook/set/${INSTANCE}`, {
+    url: webhookUrl,
+    events: [
+      'CONNECTION_UPDATE',
+      'QRCODE_UPDATED',
+      'MESSAGES_UPSERT',
+      'MESSAGES_UPDATE',
+      'SEND_MESSAGE',
+    ],
+    webhook_by_events: false,
+    webhook_base64: false,
+  })
+}
+
 export async function logoutInstance(): Promise<void> {
   await request('DELETE', `/instance/logout/${INSTANCE}`)
 }

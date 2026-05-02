@@ -83,6 +83,8 @@ function isWebhookAuthorized(req: NextRequest): boolean {
     req.headers.get('apikey'),
     req.headers.get('x-api-key'),
     req.headers.get('authorization')?.replace(/^Bearer\s+/i, ''),
+    req.nextUrl.searchParams.get('secret'),
+    req.nextUrl.searchParams.get('token'),
   ]
 
   return candidates.some((value) => typeof value === 'string' && secrets.includes(value))
