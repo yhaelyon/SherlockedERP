@@ -178,10 +178,12 @@ export default function WhatsAppInboxPage() {
         { event: '*', schema: 'public', table: 'whatsapp_inbox_messages' },
         (payload) => {
           const incoming = payload.new as Partial<InboxMessage>
-          if (incoming.conversation_id && incoming.conversation_id === selectedId) {
-            loadMessages(selectedId)
+          // Always reload messages for the open conversation when any message changes
+          if (selectedId) loadMessages(selectedId)
+          // Also keep the conversation list (preview, unread count) fresh
+          if (!incoming.conversation_id || incoming.conversation_id !== selectedId) {
+            loadConversations()
           }
-          loadConversations()
         },
       )
       .subscribe()
@@ -248,7 +250,10 @@ export default function WhatsAppInboxPage() {
         <div className="flex items-center gap-2">
           <ConnectionStatusBadge />
           <button
-            onClick={loadConversations}
+            onClick={() => {
+              loadConversations()
+              if (selectedId) loadMessages(selectedId)
+            }}
             className="w-10 h-10 rounded-lg flex items-center justify-center transition-colors"
             style={{ background: '#1A1D2A', color: '#8B8FA8', border: '1px solid #2A2D3E' }}
             title="רענון"

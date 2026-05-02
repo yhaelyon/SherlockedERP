@@ -152,7 +152,7 @@ export async function sendInboxImage(params: {
 }) {
   const baseUrl = process.env.EVOLUTION_API_URL
   const apiKey = process.env.EVOLUTION_API_KEY
-  const instance = process.env.EVOLUTION_INSTANCE_NAME ?? 'sherlocked-main'
+  const instance = process.env.EVOLUTION_INSTANCE_NAME ?? 'sherlocked'
 
   if (!baseUrl || !apiKey) throw new Error('Evolution API not configured')
 
