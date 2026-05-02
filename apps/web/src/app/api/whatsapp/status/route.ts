@@ -11,15 +11,20 @@ let lastWebhookSyncAt = 0
 
 function productionOrigin(req: NextRequest): string | null {
   const configuredOrigin = process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL
+  const forwardedProto = req.headers.get('x-forwarded-proto') ?? 'https'
+  const forwardedHost = req.headers.get('x-forwarded-host')
+  const host = req.headers.get('host')
   const candidates = [
-    req.nextUrl.origin,
+    forwardedHost ? `${forwardedProto}://${forwardedHost}` : null,
+    host ? `${forwardedProto}://${host}` : null,
     configuredOrigin?.startsWith('http') ? configuredOrigin : null,
+    req.nextUrl.origin,
   ].filter((value): value is string => Boolean(value))
 
   for (const candidate of candidates) {
     const origin = candidate.replace(/\/$/, '')
     const hostname = new URL(origin).hostname
-    if (hostname !== 'localhost' && hostname !== '127.0.0.1') return origin
+    if (hostname !== 'localhost' && hostname !== '127.0.0.1' && hostname !== '0.0.0.0') return origin
   }
 
   return null

@@ -33,6 +33,8 @@ export function safeHeaders(req: NextRequest): JsonRecord {
     user_agent: req.headers.get('user-agent'),
     x_api_key: req.headers.has('x-api-key') ? '[present]' : null,
     x_forwarded_for: req.headers.get('x-forwarded-for'),
+    x_forwarded_host: req.headers.get('x-forwarded-host'),
+    x_forwarded_proto: req.headers.get('x-forwarded-proto'),
     x_railway_request_id: req.headers.get('x-railway-request-id'),
   }
 }
