@@ -2,6 +2,7 @@ import { getAdminClient } from '@/lib/supabase-admin'
 import { NextRequest, NextResponse } from 'next/server'
 import { existsSync, readFileSync } from 'fs'
 import { resolve } from 'path'
+import { logWhatsAppEvent, queryParams, safeHeaders } from '../_logging'
 
 export const dynamic = 'force-dynamic'
 
@@ -172,6 +173,22 @@ async function storeIncomingMessage(params: {
   return { phone, body, externalMessageId }
 }
 
+function firstMessageLogDetails(payload: Record<string, unknown>) {
+  const message = messageCandidates(payload)[0]
+  const key = asRecord(message?.key)
+  const remoteJid = pickString(key.remoteJid, message?.remoteJid, message?.chatId)
+  const externalMessageId = pickString(key.id, message?.id, message?.messageId)
+  const fromMe = key.fromMe === true || message?.fromMe === true
+
+  return {
+    instance_id: pickString(payload.instance, message?.instance, asRecord(payload.data).instance),
+    remote_jid: remoteJid,
+    external_message_id: externalMessageId,
+    direction: fromMe ? 'outbound' : remoteJid ? 'inbound' : null,
+    phone: remoteJid ? normalizePhone(remoteJid) : null,
+  }
+}
+
 /**
  * POST /api/whatsapp/webhook
  * Receives events from Evolution API (webhooks).
@@ -182,126 +199,210 @@ async function storeIncomingMessage(params: {
  *   MESSAGES_UPSERT    → process incoming client messages (smart replies + booking confirmation)
  */
 export async function POST(req: NextRequest) {
+  const supabase = getAdminClient()
+  const baseLog = {
+    endpoint: '/api/whatsapp/webhook',
+    method: 'POST',
+    request_headers: safeHeaders(req),
+    query: queryParams(req),
+  }
+
+  let body: Record<string, unknown>
+  try {
+    body = asRecord(await req.json())
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Invalid JSON payload'
+    await logWhatsAppEvent(supabase, {
+      ...baseLog,
+      status: 'failed',
+      auth_ok: null,
+      error_message: errorMessage,
+    })
+    return NextResponse.json({ error: 'Invalid JSON payload' }, { status: 400 })
+  }
+
+  const event = pickString(body.event, body.type)
+  const details = firstMessageLogDetails(body)
+  const authOk = isWebhookAuthorized(req)
+
+  await logWhatsAppEvent(supabase, {
+    ...baseLog,
+    ...details,
+    event,
+    auth_ok: authOk,
+    status: authOk ? 'received' : 'unauthorized',
+    payload: body,
+  })
+
   // Evolution can call this route directly, or via the thin relay service. Keep
   // this compatibility endpoint while Fastify remains the long-term owner.
-  if (!isWebhookAuthorized(req)) {
+  if (!authOk) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const supabase = getAdminClient()
-  const body = asRecord(await req.json())
-  const event = pickString(body.event, body.type)
+  try {
+    // ─── CONNECTION_UPDATE ─────────────────────────────────────────────────
+    if (event === 'connection.update' || event === 'CONNECTION_UPDATE') {
+      const data = asRecord(body.data)
+      const me = asRecord(data.me)
+      const state = pickString(data.state, data.status, data.connection)
+      const status =
+        state === 'open' || state === 'connected' ? 'connected' :
+        state === 'connecting' ? 'connecting' :
+        'disconnected'
 
-  // ─── CONNECTION_UPDATE ───────────────────────────────────────────────────
-  if (event === 'connection.update' || event === 'CONNECTION_UPDATE') {
-    const data = asRecord(body.data)
-    const me = asRecord(data.me)
-    const state = pickString(data.state, data.status, data.connection)
-    const status =
-      state === 'open' || state === 'connected' ? 'connected' :
-      state === 'connecting' ? 'connecting' :
-      'disconnected'
-
-    await supabase.from('whatsapp_config').update({
-      status,
-      phone_number: pickString(me.id)?.replace('@s.whatsapp.net', '') ?? undefined,
-      last_connected: status === 'connected' ? new Date().toISOString() : undefined,
-      qr_code: status === 'connected' ? null : undefined,
-      updated_at: new Date().toISOString(),
-    }).eq('id', '00000000-0000-0000-0000-000000000001')
-  }
-
-  // ─── QRCODE_UPDATED ──────────────────────────────────────────────────────
-  if (event === 'qrcode.updated' || event === 'QRCODE_UPDATED') {
-    const data = asRecord(body.data)
-    const base64 = pickString(asRecord(data.qrcode).base64, data.base64)
-    if (base64) {
       await supabase.from('whatsapp_config').update({
-        qr_code: base64,
-        status: 'qr',
+        status,
+        phone_number: pickString(me.id)?.replace('@s.whatsapp.net', '') ?? undefined,
+        last_connected: status === 'connected' ? new Date().toISOString() : undefined,
+        qr_code: status === 'connected' ? null : undefined,
         updated_at: new Date().toISOString(),
       }).eq('id', '00000000-0000-0000-0000-000000000001')
+
+      await logWhatsAppEvent(supabase, {
+        ...baseLog,
+        event,
+        auth_ok: true,
+        status: 'processed',
+        response: { status },
+      })
+      return NextResponse.json({ received: true, processed: 1 })
     }
-  }
 
-  // ─── MESSAGES_UPSERT (incoming client messages) ──────────────────────────
-  if (event === 'messages.upsert' || event === 'MESSAGES_UPSERT') {
-    const messages = messageCandidates(body)
-    let processed = 0
+    // ─── QRCODE_UPDATED ────────────────────────────────────────────────────
+    if (event === 'qrcode.updated' || event === 'QRCODE_UPDATED') {
+      const data = asRecord(body.data)
+      const base64 = pickString(asRecord(data.qrcode).base64, data.base64)
+      if (base64) {
+        await supabase.from('whatsapp_config').update({
+          qr_code: base64,
+          status: 'qr',
+          updated_at: new Date().toISOString(),
+        }).eq('id', '00000000-0000-0000-0000-000000000001')
+      }
 
-    for (const message of messages) {
-      const stored = await storeIncomingMessage({ supabase, payload: body, message })
-      if (!stored) continue
-      processed += 1
-      const messageText = stored.body.toLowerCase()
+      await logWhatsAppEvent(supabase, {
+        ...baseLog,
+        event,
+        auth_ok: true,
+        status: base64 ? 'processed' : 'ignored',
+        ignored_reason: base64 ? null : 'missing_qr_payload',
+      })
+      return NextResponse.json({ received: true, processed: base64 ? 1 : 0 })
+    }
 
-      // --- Smart Reply Logic ---
-      // Find the last outbound message sent to this number
-      const { data: lastSent } = await supabase
-        .from('whatsapp_messages')
-        .select('id, trigger_type, reference_id, status')
-        .eq('to_number', stored.phone)
-        .eq('status', 'sent')
-        .order('sent_at', { ascending: false })
-        .limit(1)
-        .maybeSingle()
+    // ─── MESSAGES_UPSERT (incoming client messages) ────────────────────────
+    if (event === 'messages.upsert' || event === 'MESSAGES_UPSERT') {
+      const messages = messageCandidates(body)
+      let processed = 0
 
-      const confirmWords = ['כן', 'yes', 'ok', 'אוקי', 'מאשר', 'מאשרת', '✅', '👍', 'בסדר', 'confirmed']
-      const cancelWords  = ['לא', 'ביטול', 'cancel', 'לבטל', 'מבטל', 'מבטלת', '❌', 'no']
+      for (const message of messages) {
+        const stored = await storeIncomingMessage({ supabase, payload: body, message })
+        if (!stored) continue
+        processed += 1
+        const messageText = stored.body.toLowerCase()
 
-      const isConfirm = confirmWords.some(w => messageText.includes(w))
-      const isCancel  = cancelWords.some(w => messageText.includes(w))
+        // --- Smart Reply Logic ---
+        // Find the last outbound message sent to this number
+        const { data: lastSent } = await supabase
+          .from('whatsapp_messages')
+          .select('id, trigger_type, reference_id, status')
+          .eq('to_number', stored.phone)
+          .eq('status', 'sent')
+          .order('sent_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
 
-      if (lastSent?.reference_id) {
-        // ── Booking reminder confirmation ──────────────────────────────────
-        if (lastSent.trigger_type === 'booking_reminder') {
-          if (isConfirm) {
-            await supabase.from('bookings').update({
-              whatsapp_confirmed: true,
-              whatsapp_confirmed_at: new Date().toISOString(),
-            }).eq('id', lastSent.reference_id)
+        const confirmWords = ['כן', 'yes', 'ok', 'אוקי', 'מאשר', 'מאשרת', '✅', '👍', 'בסדר', 'confirmed']
+        const cancelWords  = ['לא', 'ביטול', 'cancel', 'לבטל', 'מבטל', 'מבטלת', '❌', 'no']
 
-            await fetch(`${process.env.NEXT_PUBLIC_APP_URL ?? ''}/api/whatsapp/send`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                to: stored.phone,
-                message: 'תודה על האישור! 🎉 מחכים לכם ממש בקרוב. — Sherlocked',
-                triggerType: 'auto_reply_confirm',
-                referenceId: lastSent.reference_id,
-              }),
-            }).catch(() => {})
+        const isConfirm = confirmWords.some(w => messageText.includes(w))
+        const isCancel  = cancelWords.some(w => messageText.includes(w))
+
+        if (lastSent?.reference_id) {
+          // ── Booking reminder confirmation ────────────────────────────────
+          if (lastSent.trigger_type === 'booking_reminder') {
+            if (isConfirm) {
+              await supabase.from('bookings').update({
+                whatsapp_confirmed: true,
+                whatsapp_confirmed_at: new Date().toISOString(),
+              }).eq('id', lastSent.reference_id)
+
+              await fetch(`${process.env.NEXT_PUBLIC_APP_URL ?? ''}/api/whatsapp/send`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  to: stored.phone,
+                  message: 'תודה על האישור! 🎉 מחכים לכם ממש בקרוב. — Sherlocked',
+                  triggerType: 'auto_reply_confirm',
+                  referenceId: lastSent.reference_id,
+                }),
+              }).catch(() => {})
+            }
+
+            if (isCancel) {
+              await supabase.from('bookings').update({
+                status: 'pending_cancellation',
+              }).eq('id', lastSent.reference_id)
+
+              await fetch(`${process.env.NEXT_PUBLIC_APP_URL ?? ''}/api/whatsapp/send`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  to: stored.phone,
+                  message: 'קיבלנו את בקשת הביטול שלכם. מנהל ייצור איתכם קשר בהקדם. — Sherlocked',
+                  triggerType: 'auto_reply_cancel',
+                  referenceId: lastSent.reference_id,
+                }),
+              }).catch(() => {})
+            }
           }
 
-          if (isCancel) {
-            await supabase.from('bookings').update({
-              status: 'pending_cancellation',
-            }).eq('id', lastSent.reference_id)
-
-            await fetch(`${process.env.NEXT_PUBLIC_APP_URL ?? ''}/api/whatsapp/send`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                to: stored.phone,
-                message: 'קיבלנו את בקשת הביטול שלכם. מנהל ייצור איתכם קשר בהקדם. — Sherlocked',
-                triggerType: 'auto_reply_cancel',
-                referenceId: lastSent.reference_id,
-              }),
-            }).catch(() => {})
+          // ── Payment request reply ────────────────────────────────────────
+          if (lastSent.trigger_type === 'payment_request' && isConfirm) {
+            await supabase.from('whatsapp_messages').update({
+              error: 'client_confirmed_payment',
+            }).eq('id', lastSent.id)
           }
-        }
-
-        // ── Payment request reply ──────────────────────────────────────────
-        if (lastSent.trigger_type === 'payment_request' && isConfirm) {
-          await supabase.from('whatsapp_messages').update({
-            error: 'client_confirmed_payment',
-          }).eq('id', lastSent.id)
         }
       }
+
+      await logWhatsAppEvent(supabase, {
+        ...baseLog,
+        ...details,
+        event,
+        auth_ok: true,
+        status: processed > 0 ? 'processed' : 'ignored',
+        processed_count: processed,
+        ignored_reason: processed > 0 ? null : 'no_supported_incoming_text_messages',
+        response: { processed, candidates: messages.length },
+      })
+
+      return NextResponse.json({ received: true, processed })
     }
 
-    return NextResponse.json({ received: true, processed })
-  }
+    await logWhatsAppEvent(supabase, {
+      ...baseLog,
+      ...details,
+      event,
+      auth_ok: true,
+      status: 'ignored',
+      ignored_reason: 'unsupported_event',
+      response: { event },
+    })
 
-  return NextResponse.json({ received: true })
+    return NextResponse.json({ received: true, ignored: true })
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Webhook processing failed'
+    await logWhatsAppEvent(supabase, {
+      ...baseLog,
+      ...details,
+      event,
+      auth_ok: true,
+      status: 'failed',
+      error_message: errorMessage,
+      payload: body,
+    })
+    return NextResponse.json({ error: errorMessage }, { status: 500 })
+  }
 }

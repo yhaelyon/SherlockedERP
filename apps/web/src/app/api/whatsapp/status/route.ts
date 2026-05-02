@@ -1,6 +1,7 @@
 import { getAdminClient } from '@/lib/supabase-admin'
 import { NextRequest, NextResponse } from 'next/server'
 import { getInstanceStatus, setWebhook } from '@/lib/whatsapp-client'
+import { logWhatsAppEvent, queryParams, safeHeaders } from '../_logging'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -24,7 +25,7 @@ function productionOrigin(req: NextRequest): string | null {
   return null
 }
 
-async function syncWebhookIfNeeded(req: NextRequest) {
+async function syncWebhookIfNeeded(req: NextRequest, supabase: ReturnType<typeof getAdminClient>) {
   if (!process.env.EVOLUTION_API_URL || !process.env.EVOLUTION_API_KEY) return
 
   const now = Date.now()
@@ -37,7 +38,42 @@ async function syncWebhookIfNeeded(req: NextRequest) {
   const secret = process.env.WHATSAPP_WEBHOOK_SECRET ?? process.env.EVOLUTION_API_KEY
   const webhookUrl = `${origin}/api/whatsapp/webhook?secret=${encodeURIComponent(secret)}`
 
-  await setWebhook(webhookUrl)
+  try {
+    const response = await setWebhook(webhookUrl)
+    await logWhatsAppEvent(supabase, {
+      endpoint: '/api/whatsapp/status',
+      method: 'GET',
+      source: 'erp',
+      event: 'webhook.set',
+      auth_ok: true,
+      status: 'processed',
+      request_headers: safeHeaders(req),
+      query: queryParams(req),
+      payload: {
+        origin,
+        webhookUrl: `${origin}/api/whatsapp/webhook?secret=[present]`,
+      },
+      response,
+    })
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Failed to sync webhook'
+    await logWhatsAppEvent(supabase, {
+      endpoint: '/api/whatsapp/status',
+      method: 'GET',
+      source: 'erp',
+      event: 'webhook.set',
+      auth_ok: true,
+      status: 'failed',
+      request_headers: safeHeaders(req),
+      query: queryParams(req),
+      payload: {
+        origin,
+        webhookUrl: `${origin}/api/whatsapp/webhook?secret=[present]`,
+      },
+      error_message: errorMessage,
+    })
+    throw error
+  }
 }
 
 /**
@@ -74,7 +110,7 @@ export async function GET(req: NextRequest) {
       'disconnected'
 
     if (liveStatus === 'connected') {
-      await syncWebhookIfNeeded(req).catch(error => {
+      await syncWebhookIfNeeded(req, supabase).catch(error => {
         console.warn('Failed to sync WhatsApp webhook', error)
       })
     }

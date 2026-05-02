@@ -30,7 +30,31 @@ interface WaMessage {
   created_at: string
 }
 
+interface WaWebhookLog {
+  id: string
+  endpoint: string
+  event: string | null
+  status: 'received' | 'processed' | 'ignored' | 'unauthorized' | 'failed'
+  processed_count: number
+  phone: string | null
+  remote_jid: string | null
+  error_message: string | null
+  ignored_reason: string | null
+  created_at: string
+}
+
 type Tab = 'status' | 'templates' | 'manual' | 'log' | 'settings' | 'ai'
+
+function formatIsraelTime(value: string) {
+  return new Intl.DateTimeFormat('he-IL', {
+    timeZone: 'Asia/Jerusalem',
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(new Date(value))
+}
 
 // ─── Tab button ───────────────────────────────────────────────────────────────
 
@@ -385,19 +409,83 @@ const TRIGGER_LABELS: Record<string, string> = {
 
 function LogTab() {
   const [messages, setMessages] = useState<WaMessage[]>([])
+  const [webhookLogs, setWebhookLogs] = useState<WaWebhookLog[]>([])
   const [loading, setLoading]   = useState(true)
 
-  useEffect(() => {
-    fetch('/api/whatsapp/messages?limit=100')
-      .then(r => r.json())
-      .then(d => { setMessages(d); setLoading(false) })
+  const loadLogs = useCallback(() => {
+    setLoading(true)
+    Promise.all([
+      fetch('/api/whatsapp/messages?limit=100').then(r => r.json()),
+      fetch('/api/whatsapp/webhook/logs?limit=100').then(r => r.json()).catch(() => []),
+    ])
+      .then(([messageData, webhookData]) => {
+        setMessages(Array.isArray(messageData) ? messageData : [])
+        setWebhookLogs(Array.isArray(webhookData) ? webhookData : [])
+      })
+      .finally(() => setLoading(false))
   }, [])
 
+  useEffect(() => { loadLogs() }, [loadLogs])
+
   if (loading) return <div className="text-center py-10 text-[#8B8FA8]">טוען...</div>
-  if (!messages.length) return <div className="text-center py-10 text-[#8B8FA8]">אין הודעות עדיין</div>
+  if (!messages.length && !webhookLogs.length) return <div className="text-center py-10 text-[#8B8FA8]">אין הודעות עדיין</div>
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-5">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-[#E8EAFF]">לוג Webhook נכנס</h3>
+        <button
+          onClick={loadLogs}
+          className="px-3 py-1.5 rounded-lg text-xs"
+          style={{ background: '#22253A', color: '#8B8FA8' }}
+        >
+          🔄 רענן
+        </button>
+      </div>
+
+      <div className="space-y-2">
+        {webhookLogs.length ? webhookLogs.map(log => (
+          <div key={log.id} className="rounded-xl p-3 flex items-start gap-3" style={{ background: '#1A1D27', border: '1px solid #2A2D3E' }}>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap mb-1">
+                <span className="text-xs font-medium text-[#E8EAFF]" dir="ltr">{log.event ?? 'unknown'}</span>
+                <span
+                  className="text-xs px-2 py-0.5 rounded-full"
+                  style={{
+                    background: log.status === 'processed' ? 'rgba(16,185,129,0.15)' :
+                                 log.status === 'failed' || log.status === 'unauthorized' ? 'rgba(239,68,68,0.15)' :
+                                 log.status === 'ignored' ? 'rgba(245,158,11,0.15)' :
+                                 'rgba(59,130,246,0.15)',
+                    color: log.status === 'processed' ? '#10B981' :
+                           log.status === 'failed' || log.status === 'unauthorized' ? '#F87171' :
+                           log.status === 'ignored' ? '#F59E0B' :
+                           '#60A5FA',
+                  }}
+                >
+                  {log.status}
+                </span>
+                {log.phone && <span className="text-xs text-[#8B8FA8]" dir="ltr">{log.phone}</span>}
+                <span className="text-xs text-[#555870]">processed: {log.processed_count}</span>
+              </div>
+              {(log.error_message || log.ignored_reason || log.remote_jid) && (
+                <p className="text-xs text-[#8B8FA8] leading-relaxed" dir="ltr">
+                  {log.error_message ?? log.ignored_reason ?? log.remote_jid}
+                </p>
+              )}
+            </div>
+            <span className="text-xs text-[#555870] flex-shrink-0" dir="ltr">
+              {formatIsraelTime(log.created_at)}
+            </span>
+          </div>
+        )) : (
+          <div className="text-center py-5 text-[#8B8FA8] rounded-xl" style={{ background: '#1A1D27', border: '1px solid #2A2D3E' }}>
+            אין עדיין קריאות Webhook
+          </div>
+        )}
+      </div>
+
+      <h3 className="text-sm font-semibold text-[#E8EAFF]">לוג הודעות</h3>
+      <div className="space-y-2">
       {messages.map(m => (
         <div key={m.id} className="rounded-xl p-3 flex items-start gap-3" style={{ background: '#1A1D27', border: '1px solid #2A2D3E' }}>
           <div className="flex-1 min-w-0">
@@ -428,10 +516,11 @@ function LogTab() {
             <p className="text-xs text-[#8B8FA8] leading-relaxed line-clamp-2" dir="rtl">{m.message}</p>
           </div>
           <span className="text-xs text-[#555870] flex-shrink-0" dir="ltr">
-            {new Date(m.created_at).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}
+            {formatIsraelTime(m.created_at)}
           </span>
         </div>
       ))}
+      </div>
     </div>
   )
 }

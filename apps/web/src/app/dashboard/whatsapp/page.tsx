@@ -79,10 +79,12 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 function formatTime(value: string | null): string {
   if (!value) return ''
   return new Intl.DateTimeFormat('he-IL', {
+    timeZone: 'Asia/Jerusalem',
     hour: '2-digit',
     minute: '2-digit',
     day: '2-digit',
     month: '2-digit',
+    hour12: false,
   }).format(new Date(value))
 }
 

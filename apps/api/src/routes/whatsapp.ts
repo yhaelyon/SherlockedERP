@@ -59,6 +59,47 @@ function isWebhookAuthorized(req: FastifyRequest): boolean {
   return candidates.some((value) => typeof value === 'string' && secrets.includes(value))
 }
 
+async function logWebhookEvent(input: {
+  endpoint: string
+  method?: string
+  event?: string | null
+  instanceId?: string | null
+  remoteJid?: string | null
+  externalMessageId?: string | null
+  direction?: string | null
+  phone?: string | null
+  authOk?: boolean | null
+  status: 'received' | 'processed' | 'ignored' | 'unauthorized' | 'failed'
+  processedCount?: number
+  ignoredReason?: string | null
+  errorMessage?: string | null
+  payload?: unknown
+  response?: unknown
+}) {
+  const { error } = await supabase.from('whatsapp_webhook_logs').insert({
+    endpoint: input.endpoint,
+    method: input.method ?? 'POST',
+    source: 'fastify-api',
+    event: input.event ?? null,
+    instance_id: input.instanceId ?? null,
+    remote_jid: input.remoteJid ?? null,
+    external_message_id: input.externalMessageId ?? null,
+    direction: input.direction ?? null,
+    phone: input.phone ?? null,
+    auth_ok: input.authOk ?? null,
+    status: input.status,
+    processed_count: input.processedCount ?? 0,
+    ignored_reason: input.ignoredReason ?? null,
+    error_message: input.errorMessage ?? null,
+    payload: input.payload ?? null,
+    response: input.response ?? null,
+  })
+
+  if (error) {
+    console.warn('[WhatsAppWebhookLog] Failed to persist log', error.message)
+  }
+}
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' ? value as Record<string, unknown> : {}
 }
@@ -636,15 +677,50 @@ export async function whatsappRoutes(app: FastifyInstance) {
 
   // POST /whatsapp/webhook — Evolution API webhook, direct or via apps/whatsapp relay.
   app.post('/whatsapp/webhook', async (req, reply) => {
+    const payload = asRecord(req.body)
+    const event = pickString(payload.event, payload.type)
+    const firstParsed = messageCandidates(payload)
+      .map((message) => parseWebhookMessage(payload, message))
+      .find(Boolean)
+
     if (!isWebhookAuthorized(req)) {
+      await logWebhookEvent({
+        endpoint: '/api/v1/whatsapp/webhook',
+        event,
+        instanceId: firstParsed?.instanceId,
+        remoteJid: firstParsed?.remoteJid,
+        externalMessageId: firstParsed?.externalMessageId,
+        direction: firstParsed?.direction,
+        phone: firstParsed?.phone,
+        authOk: false,
+        status: 'unauthorized',
+        payload,
+      })
       return reply.status(401).send({ error: 'Unauthorized webhook' })
     }
 
-    const payload = asRecord(req.body)
-    const event = pickString(payload.event, payload.type)
+    await logWebhookEvent({
+      endpoint: '/api/v1/whatsapp/webhook',
+      event,
+      instanceId: firstParsed?.instanceId,
+      remoteJid: firstParsed?.remoteJid,
+      externalMessageId: firstParsed?.externalMessageId,
+      direction: firstParsed?.direction,
+      phone: firstParsed?.phone,
+      authOk: true,
+      status: 'received',
+      payload,
+    })
 
     if (event === 'connection.update' || event === 'CONNECTION_UPDATE') {
       await updateConnectionFromWebhook(payload)
+      await logWebhookEvent({
+        endpoint: '/api/v1/whatsapp/webhook',
+        event,
+        authOk: true,
+        status: 'processed',
+        processedCount: 1,
+      })
       return reply.send({ ok: true })
     }
 
@@ -657,9 +733,30 @@ export async function whatsappRoutes(app: FastifyInstance) {
         await persistWebhookMessage(message)
       }
 
+      await logWebhookEvent({
+        endpoint: '/api/v1/whatsapp/webhook',
+        event,
+        instanceId: firstParsed?.instanceId,
+        remoteJid: firstParsed?.remoteJid,
+        externalMessageId: firstParsed?.externalMessageId,
+        direction: firstParsed?.direction,
+        phone: firstParsed?.phone,
+        authOk: true,
+        status: parsed.length > 0 ? 'processed' : 'ignored',
+        processedCount: parsed.length,
+        ignoredReason: parsed.length > 0 ? null : 'no_supported_messages',
+        response: { processed: parsed.length },
+      })
       return reply.send({ ok: true, processed: parsed.length })
     }
 
+    await logWebhookEvent({
+      endpoint: '/api/v1/whatsapp/webhook',
+      event,
+      authOk: true,
+      status: 'ignored',
+      ignoredReason: 'unsupported_event',
+    })
     return reply.send({ ok: true, ignored: true })
   })
 
