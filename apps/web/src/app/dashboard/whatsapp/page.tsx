@@ -5,8 +5,6 @@ import { ImagePlus, RefreshCw, Send, Wifi, WifiOff } from 'lucide-react'
 import { createClient } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth'
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
-
 type MessageStatus = 'received' | 'read' | 'pending' | 'sent' | 'failed' | 'delivered'
 
 interface CustomerSummary {
@@ -46,6 +44,19 @@ interface InboxMessage {
   created_at: string
 }
 
+function apiUrl(path: string): string {
+  const configuredApi = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '')
+  const isBrowser = typeof window !== 'undefined'
+  const isLocalPage = isBrowser && ['localhost', '127.0.0.1'].includes(window.location.hostname)
+  const configuredIsLocal = configuredApi?.includes('localhost') || configuredApi?.includes('127.0.0.1')
+
+  if (configuredApi && (isLocalPage || !configuredIsLocal)) {
+    return `${configuredApi}/api/v1${path}`
+  }
+
+  return `/api${path}`
+}
+
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const supabase = createClient()
   const { data } = await supabase.auth.getSession()
@@ -53,7 +64,7 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!token) throw new Error('יש להתחבר למערכת')
 
-  const res = await fetch(`${API}/api/v1${path}`, {
+  const res = await fetch(apiUrl(path), {
     ...init,
     cache: 'no-store',
     headers: {
