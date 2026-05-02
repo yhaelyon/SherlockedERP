@@ -45,15 +45,9 @@ interface InboxMessage {
 }
 
 function apiUrl(path: string): string {
-  const configuredApi = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '')
-  const isBrowser = typeof window !== 'undefined'
-  const isLocalPage = isBrowser && ['localhost', '127.0.0.1'].includes(window.location.hostname)
-  const configuredIsLocal = configuredApi?.includes('localhost') || configuredApi?.includes('127.0.0.1')
-
-  if (configuredApi && (isLocalPage || !configuredIsLocal)) {
-    return `${configuredApi}/api/v1${path}`
-  }
-
+  // The shared inbox uses same-origin Next routes as a production-safe proxy.
+  // Railway currently exposes NEXT_PUBLIC_API_URL to browsers, but that API
+  // origin is not reliable for authenticated inbox fetches and can fail CORS.
   return `/api${path}`
 }
 
