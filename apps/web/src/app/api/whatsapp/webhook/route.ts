@@ -76,7 +76,7 @@ function webhookSecrets(): string[] {
   return [process.env.WHATSAPP_WEBHOOK_SECRET, process.env.EVOLUTION_API_KEY].filter((value): value is string => Boolean(value))
 }
 
-function isWebhookAuthorized(req: NextRequest): boolean {
+function isWebhookAuthorized(req: NextRequest, payload?: Record<string, unknown>): boolean {
   const secrets = webhookSecrets()
   if (secrets.length === 0) return true
 
@@ -86,6 +86,7 @@ function isWebhookAuthorized(req: NextRequest): boolean {
     req.headers.get('authorization')?.replace(/^Bearer\s+/i, ''),
     req.nextUrl.searchParams.get('secret'),
     req.nextUrl.searchParams.get('token'),
+    pickString(payload?.apikey, payload?.apiKey),
   ]
 
   return candidates.some((value) => typeof value === 'string' && secrets.includes(value))
@@ -223,7 +224,7 @@ export async function POST(req: NextRequest) {
 
   const event = pickString(body.event, body.type)
   const details = firstMessageLogDetails(body)
-  const authOk = isWebhookAuthorized(req)
+  const authOk = isWebhookAuthorized(req, body)
 
   await logWhatsAppEvent(supabase, {
     ...baseLog,

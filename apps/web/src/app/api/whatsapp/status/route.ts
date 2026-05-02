@@ -12,8 +12,8 @@ let lastWebhookSyncAt = 0
 function productionOrigin(req: NextRequest): string | null {
   const configuredOrigin = process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL
   const candidates = [
-    configuredOrigin?.startsWith('http') ? configuredOrigin : null,
     req.nextUrl.origin,
+    configuredOrigin?.startsWith('http') ? configuredOrigin : null,
   ].filter((value): value is string => Boolean(value))
 
   for (const candidate of candidates) {
@@ -34,12 +34,12 @@ async function syncWebhookIfNeeded(req: NextRequest, supabase: ReturnType<typeof
   const origin = productionOrigin(req)
   if (!origin) return
 
-  lastWebhookSyncAt = now
   const secret = process.env.WHATSAPP_WEBHOOK_SECRET ?? process.env.EVOLUTION_API_KEY
   const webhookUrl = `${origin}/api/whatsapp/webhook?secret=${encodeURIComponent(secret)}`
 
   try {
     const response = await setWebhook(webhookUrl)
+    lastWebhookSyncAt = now
     await logWhatsAppEvent(supabase, {
       endpoint: '/api/whatsapp/status',
       method: 'GET',

@@ -48,12 +48,15 @@ function isWebhookAuthorized(req: FastifyRequest): boolean {
   if (secrets.length === 0) return true
 
   const query = asRecord(req.query)
+  const payload = asRecord(req.body)
   const candidates = [
     req.headers.apikey,
     req.headers['x-api-key'],
     req.headers.authorization?.replace(/^Bearer\s+/i, ''),
     query.secret,
     query.token,
+    payload.apikey,
+    payload.apiKey,
   ].flatMap((value) => (Array.isArray(value) ? value : [value]))
 
   return candidates.some((value) => typeof value === 'string' && secrets.includes(value))
