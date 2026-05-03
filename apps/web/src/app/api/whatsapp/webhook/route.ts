@@ -73,7 +73,11 @@ function timestampToIso(value: unknown): string {
 }
 
 function webhookSecrets(): string[] {
-  return [process.env.WHATSAPP_WEBHOOK_SECRET, process.env.EVOLUTION_API_KEY].filter((value): value is string => Boolean(value))
+  return [
+    process.env.WHATSAPP_WEBHOOK_SECRET,
+    process.env.EVOLUTION_API_KEY,
+    process.env.WHATSAPP_WEBHOOK_SECRET_LEGACY,
+  ].filter((value): value is string => Boolean(value))
 }
 
 function isWebhookAuthorized(req: NextRequest, payload?: Record<string, unknown>): boolean {
@@ -302,6 +306,45 @@ export async function POST(req: NextRequest) {
         if (!stored) continue
         processed += 1
         const messageText = stored.body.toLowerCase()
+
+        // Verify the bridge trigger wrote to whatsapp_inbox_messages
+        let bridgeRow: { id: string; conversation_id: string } | null = null
+        let bridgeError: { message: string } | null = null
+
+        if (stored.externalMessageId) {
+          const result = await supabase
+            .from('whatsapp_inbox_messages')
+            .select('id, conversation_id')
+            .eq('external_message_id', stored.externalMessageId)
+            .eq('direction', 'inbound')
+            .maybeSingle()
+          bridgeRow = result.data as typeof bridgeRow
+          bridgeError = result.error
+        } else {
+          const result = await supabase
+            .from('whatsapp_inbox_messages')
+            .select('id, conversation_id')
+            .eq('direction', 'inbound')
+            .gte('created_at', new Date(Date.now() - 5000).toISOString())
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle()
+          bridgeRow = result.data as typeof bridgeRow
+          bridgeError = result.error
+        }
+
+        await logWhatsAppEvent(supabase, {
+          ...baseLog,
+          event: 'bridge.verify',
+          auth_ok: true,
+          phone: stored.phone,
+          external_message_id: stored.externalMessageId ?? null,
+          status: bridgeRow ? 'processed' : 'failed',
+          ignored_reason: bridgeRow ? null : bridgeError ? bridgeError.message : 'bridge_trigger_did_not_write_inbox_message',
+          response: bridgeRow
+            ? { inbox_message_id: bridgeRow.id, conversation_id: bridgeRow.conversation_id }
+            : { phone: stored.phone, external_message_id: stored.externalMessageId },
+        })
 
         // --- Smart Reply Logic ---
         // Find the last outbound message sent to this number

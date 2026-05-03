@@ -35,7 +35,7 @@ async function recordInboxOutbound(params: {
   text: string
   rawPayload?: Record<string, unknown>
 }) {
-  const instanceId = process.env.EVOLUTION_INSTANCE_NAME ?? 'sherlocked-main'
+  const instanceId = process.env.EVOLUTION_INSTANCE_NAME ?? 'sherlocked'
   const remoteJid = remoteJidForPhone(params.phone)
   const now = new Date().toISOString()
 
