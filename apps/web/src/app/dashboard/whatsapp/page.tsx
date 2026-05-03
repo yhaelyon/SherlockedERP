@@ -112,18 +112,26 @@ export default function WhatsAppInboxPage() {
     [conversations, selectedId],
   )
 
+  // Monotonically-increasing sequence number: only the latest in-flight call
+  // is allowed to commit its result. This prevents a slow earlier fetch from
+  // overwriting a faster later one (race condition that caused stale sidebar).
+  const loadConvsSeqRef = useRef(0)
+
   const loadConversations = useCallback(async () => {
     if (!user) return
+    const seq = ++loadConvsSeqRef.current
     setLoadingConversations(true)
     setError(null)
     try {
       const data = await apiFetch<Conversation[]>('/whatsapp/inbox/conversations')
+      if (seq !== loadConvsSeqRef.current) return
       setConversations(data)
       setSelectedId((current) => current ?? data[0]?.id ?? null)
     } catch (err) {
+      if (seq !== loadConvsSeqRef.current) return
       setError(err instanceof Error ? err.message : 'שגיאה בטעינת שיחות')
     } finally {
-      setLoadingConversations(false)
+      if (seq === loadConvsSeqRef.current) setLoadingConversations(false)
     }
   }, [user])
 
@@ -232,7 +240,17 @@ export default function WhatsAppInboxPage() {
         method: 'POST',
         body: JSON.stringify({ body }),
       })
-      setMessages((prev) => [...prev, sent])
+      // Merge by id: the realtime INSERT may have already added the pending version;
+      // replace it rather than appending a duplicate.
+      setMessages((prev) => {
+        const idx = prev.findIndex((m) => m.id === sent.id)
+        if (idx !== -1) {
+          const next = prev.slice()
+          next[idx] = sent
+          return next
+        }
+        return [...prev, sent]
+      })
       await loadConversations()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'שליחת הודעה נכשלה')
@@ -250,7 +268,15 @@ export default function WhatsAppInboxPage() {
         method: 'POST',
         body: JSON.stringify({ mediaUrl, mimeType, fileName, caption }),
       })
-      setMessages((prev) => [...prev, sent])
+      setMessages((prev) => {
+        const idx = prev.findIndex((m) => m.id === sent.id)
+        if (idx !== -1) {
+          const next = prev.slice()
+          next[idx] = sent
+          return next
+        }
+        return [...prev, sent]
+      })
       await loadConversations()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'שליחת תמונה נכשלה')
