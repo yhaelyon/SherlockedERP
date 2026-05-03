@@ -36,6 +36,17 @@ export function createClient() {
         storageKey: 'sherlocked-auth-v2',
       },
     })
+
+    // Feed the user's JWT into the Realtime websocket so RLS policies
+    // (which gate postgres_changes delivery) see auth.uid() and not anon.
+    // Without this, RLS-protected tables silently drop every realtime event.
+    const c = client
+    c.auth.getSession().then(({ data }) => {
+      c.realtime.setAuth(data.session?.access_token ?? key)
+    })
+    c.auth.onAuthStateChange((_event, session) => {
+      c.realtime.setAuth(session?.access_token ?? key)
+    })
   }
 
   return client

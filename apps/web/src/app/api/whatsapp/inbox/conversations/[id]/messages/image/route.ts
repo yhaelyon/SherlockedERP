@@ -89,7 +89,16 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       .select('*')
       .single()
 
-    return NextResponse.json(updated ?? pending)
+    if (updated) return NextResponse.json(updated)
+
+    // Defensive: never let the UI think the row is still 'pending' after a successful send.
+    const { data: refetched } = await supabase
+      .from('whatsapp_inbox_messages')
+      .select('*')
+      .eq('id', pending.id)
+      .single()
+
+    return NextResponse.json(refetched ?? { ...pending, status: 'sent', external_message_id: externalMessageId })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Send failed'
     const { data: failed } = await supabase

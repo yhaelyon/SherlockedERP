@@ -160,6 +160,13 @@ export default function WhatsAppInboxPage() {
     if (selectedId) loadMessages(selectedId)
   }, [loadMessages, selectedId])
 
+  // Keep a ref so the realtime handler always reads the current selectedId
+  // without the channel having to re-subscribe on every conversation switch.
+  const selectedIdRef = useRef<string | null>(null)
+  useEffect(() => {
+    selectedIdRef.current = selectedId
+  }, [selectedId])
+
   useEffect(() => {
     if (!user || !can('whatsapp_inbox')) return
 
@@ -177,12 +184,35 @@ export default function WhatsAppInboxPage() {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'whatsapp_inbox_messages' },
         (payload) => {
-          const incoming = payload.new as Partial<InboxMessage>
-          // Always reload messages for the open conversation when any message changes
-          if (selectedId) loadMessages(selectedId)
-          // Also keep the conversation list (preview, unread count) fresh
-          if (!incoming.conversation_id || incoming.conversation_id !== selectedId) {
+          const currentId = selectedIdRef.current
+          const eventType = payload.eventType as 'INSERT' | 'UPDATE' | 'DELETE'
+          const newRow = payload.new as InboxMessage | null
+          const oldRow = payload.old as Partial<InboxMessage> | null
+
+          if (eventType === 'DELETE') {
+            const deletedId = oldRow?.id
+            if (deletedId) setMessages((prev) => prev.filter((m) => m.id !== deletedId))
             loadConversations()
+            return
+          }
+
+          if (!newRow) return
+
+          // Sidebar (preview/unread) always cares
+          loadConversations()
+
+          if (newRow.conversation_id !== currentId) return
+
+          if (eventType === 'INSERT') {
+            setMessages((prev) => (prev.some((m) => m.id === newRow.id) ? prev : [...prev, newRow]))
+          } else if (eventType === 'UPDATE') {
+            setMessages((prev) => {
+              const idx = prev.findIndex((m) => m.id === newRow.id)
+              if (idx === -1) return [...prev, newRow]
+              const next = prev.slice()
+              next[idx] = { ...next[idx], ...newRow }
+              return next
+            })
           }
         },
       )
@@ -191,7 +221,7 @@ export default function WhatsAppInboxPage() {
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [can, loadConversations, loadMessages, selectedId, user])
+  }, [can, loadConversations, user])
 
   const sendText = async (body: string) => {
     if (!selectedId) return
