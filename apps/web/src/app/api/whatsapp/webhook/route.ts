@@ -178,6 +178,136 @@ async function storeIncomingMessage(params: {
   return { phone, body, externalMessageId }
 }
 
+// Writes inbound media messages (image/video/sticker) directly to the inbox tables,
+// bypassing the legacy whatsapp_messages → bridge-trigger path (which only handles text).
+// Uses phone-first conversation lookup to avoid duplicate conversations.
+async function storeIncomingMediaToInbox(params: {
+  supabase: ReturnType<typeof getAdminClient>
+  payload: Record<string, unknown>
+  message: Record<string, unknown>
+}): Promise<{ phone: string; externalMessageId: string | null; mediaType: string } | null> {
+  const key = asRecord(params.message.key)
+  if (key.fromMe === true || params.message.fromMe === true) return null
+
+  const remoteJid = pickString(key.remoteJid, params.message.remoteJid, params.message.chatId)
+  if (isIgnoredRemoteJid(remoteJid)) return null
+
+  const phone = normalizePhone(remoteJid ?? '')
+  if (!phone) return null
+
+  const content = asRecord(params.message.message)
+  const imageMsg  = asRecord(content.imageMessage)
+  const videoMsg  = asRecord(content.videoMessage)
+  const docMsg    = asRecord(content.documentMessage)
+  const stickerMsg = asRecord(content.stickerMessage)
+  const audioMsg  = asRecord(content.audioMessage)
+
+  let mediaType = ''
+  let mimeType: string | null = null
+  let caption: string | null = null
+  let thumbnailUrl: string | null = null
+
+  if (Object.keys(imageMsg).length > 0) {
+    mediaType = 'image'
+    mimeType = pickString(imageMsg.mimetype) ?? 'image/jpeg'
+    caption = pickString(imageMsg.caption) ?? null
+    const jpg = pickString(imageMsg.jpegThumbnail)
+    if (jpg) thumbnailUrl = `data:image/jpeg;base64,${jpg}`
+  } else if (Object.keys(videoMsg).length > 0) {
+    mediaType = 'video'
+    mimeType = pickString(videoMsg.mimetype) ?? 'video/mp4'
+    caption = pickString(videoMsg.caption) ?? null
+    const jpg = pickString(videoMsg.jpegThumbnail)
+    if (jpg) thumbnailUrl = `data:image/jpeg;base64,${jpg}`
+  } else if (Object.keys(stickerMsg).length > 0) {
+    mediaType = 'sticker'
+    mimeType = 'image/webp'
+    const jpg = pickString(stickerMsg.jpegThumbnail)
+    if (jpg) thumbnailUrl = `data:image/jpeg;base64,${jpg}`
+  } else if (Object.keys(docMsg).length > 0) {
+    mediaType = 'document'
+    mimeType = pickString(docMsg.mimetype) ?? 'application/octet-stream'
+    caption = pickString(docMsg.caption, docMsg.fileName) ?? null
+  } else if (Object.keys(audioMsg).length > 0) {
+    mediaType = 'audio'
+    mimeType = pickString(audioMsg.mimetype) ?? 'audio/ogg'
+  } else {
+    return null
+  }
+
+  const instanceId = pickString(params.payload.instance, params.message.instance, asRecord(params.payload.data).instance)
+    ?? process.env.EVOLUTION_INSTANCE_NAME
+    ?? 'sherlocked-main'
+  const externalMessageId = pickString(key.id, params.message.id, params.message.messageId)
+  const occurredAt = timestampToIso(params.message.messageTimestamp ?? params.message.timestamp ?? asRecord(params.payload.data).date_time)
+  const previewText = caption?.trim() ? caption.trim().slice(0, 180) : mediaType === 'image' ? 'תמונה' : mediaType === 'video' ? 'סרטון' : mediaType === 'audio' ? 'הודעה קולית' : 'קובץ'
+
+  // Phone-first conversation lookup — works even without migration 026 applied.
+  const { data: existingConv } = await params.supabase
+    .from('whatsapp_inbox_conversations')
+    .select('id, unread_count')
+    .eq('phone', phone)
+    .order('last_message_at', { ascending: false, nullsFirst: false })
+    .limit(1)
+    .maybeSingle()
+
+  let conversationId: string
+
+  if (existingConv?.id) {
+    conversationId = existingConv.id
+    await params.supabase
+      .from('whatsapp_inbox_conversations')
+      .update({
+        last_message_preview: previewText,
+        last_message_at: occurredAt,
+        unread_count: (existingConv.unread_count ?? 0) + 1,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', conversationId)
+  } else {
+    const { data: newConv, error: convError } = await params.supabase
+      .from('whatsapp_inbox_conversations')
+      .insert({
+        instance_id: instanceId,
+        remote_jid: phone + '@s.whatsapp.net',
+        phone,
+        raw_phone: phone,
+        display_name: phone,
+        last_message_preview: previewText,
+        last_message_at: occurredAt,
+        unread_count: 1,
+        status: 'open',
+        created_at: occurredAt,
+        updated_at: new Date().toISOString(),
+      })
+      .select('id')
+      .single()
+    if (convError || !newConv) return null
+    conversationId = newConv.id
+  }
+
+  const { error: msgError } = await params.supabase
+    .from('whatsapp_inbox_messages')
+    .insert({
+      conversation_id: conversationId,
+      instance_id: instanceId,
+      external_message_id: externalMessageId,
+      direction: 'inbound',
+      from_me: false,
+      message_type: 'image',
+      body: caption ?? null,
+      media_url: thumbnailUrl,
+      media_mime_type: mimeType,
+      status: 'received',
+      raw_payload: params.message as Record<string, unknown>,
+      received_at: occurredAt,
+      created_at: occurredAt,
+    })
+
+  if (msgError && !msgError.message.includes('duplicate')) throw msgError
+  return { phone, externalMessageId, mediaType }
+}
+
 function firstMessageLogDetails(payload: Record<string, unknown>) {
   const message = messageCandidates(payload)[0]
   const key = asRecord(message?.key)
@@ -302,114 +432,132 @@ export async function POST(req: NextRequest) {
       let processed = 0
 
       for (const message of messages) {
+        // ── Text path (goes via whatsapp_messages → bridge trigger) ─────────
         const stored = await storeIncomingMessage({ supabase, payload: body, message })
-        if (!stored) continue
-        processed += 1
-        const messageText = stored.body.toLowerCase()
+        if (stored) {
+          processed += 1
+          const messageText = stored.body.toLowerCase()
 
-        // Verify the bridge trigger wrote to whatsapp_inbox_messages
-        type BridgeRow = { id: string; conversation_id: string }
-        let bridgeRow: BridgeRow | null = null
-        let bridgeError: { message: string } | null = null
+          // Verify the bridge trigger wrote to whatsapp_inbox_messages
+          type BridgeRow = { id: string; conversation_id: string }
+          let bridgeRow: BridgeRow | null = null
+          let bridgeError: { message: string } | null = null
 
-        if (stored.externalMessageId) {
-          const result = await supabase
-            .from('whatsapp_inbox_messages')
-            .select('id, conversation_id')
-            .eq('external_message_id', stored.externalMessageId)
-            .eq('direction', 'inbound')
-            .maybeSingle()
-          bridgeRow = result.data as BridgeRow | null
-          bridgeError = result.error
-        } else {
-          const result = await supabase
-            .from('whatsapp_inbox_messages')
-            .select('id, conversation_id')
-            .eq('direction', 'inbound')
-            .gte('created_at', new Date(Date.now() - 5000).toISOString())
-            .order('created_at', { ascending: false })
+          if (stored.externalMessageId) {
+            const result = await supabase
+              .from('whatsapp_inbox_messages')
+              .select('id, conversation_id')
+              .eq('external_message_id', stored.externalMessageId)
+              .eq('direction', 'inbound')
+              .maybeSingle()
+            bridgeRow = result.data as BridgeRow | null
+            bridgeError = result.error
+          } else {
+            const result = await supabase
+              .from('whatsapp_inbox_messages')
+              .select('id, conversation_id')
+              .eq('direction', 'inbound')
+              .gte('created_at', new Date(Date.now() - 5000).toISOString())
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .maybeSingle()
+            bridgeRow = result.data as BridgeRow | null
+            bridgeError = result.error
+          }
+
+          await logWhatsAppEvent(supabase, {
+            ...baseLog,
+            event: 'bridge.verify',
+            auth_ok: true,
+            phone: stored.phone,
+            external_message_id: stored.externalMessageId ?? null,
+            status: bridgeRow ? 'processed' : 'failed',
+            ignored_reason: bridgeRow ? null : bridgeError ? bridgeError.message : 'bridge_trigger_did_not_write_inbox_message',
+            response: bridgeRow
+              ? { inbox_message_id: bridgeRow.id, conversation_id: bridgeRow.conversation_id }
+              : { phone: stored.phone, external_message_id: stored.externalMessageId },
+          })
+
+          // --- Smart Reply Logic ---
+          const { data: lastSent } = await supabase
+            .from('whatsapp_messages')
+            .select('id, trigger_type, reference_id, status')
+            .eq('to_number', stored.phone)
+            .eq('status', 'sent')
+            .order('sent_at', { ascending: false })
             .limit(1)
             .maybeSingle()
-          bridgeRow = result.data as BridgeRow | null
-          bridgeError = result.error
+
+          const confirmWords = ['כן', 'yes', 'ok', 'אוקי', 'מאשר', 'מאשרת', '✅', '👍', 'בסדר', 'confirmed']
+          const cancelWords  = ['לא', 'ביטול', 'cancel', 'לבטל', 'מבטל', 'מבטלת', '❌', 'no']
+
+          const isConfirm = confirmWords.some(w => messageText.includes(w))
+          const isCancel  = cancelWords.some(w => messageText.includes(w))
+
+          if (lastSent?.reference_id) {
+            if (lastSent.trigger_type === 'booking_reminder') {
+              if (isConfirm) {
+                await supabase.from('bookings').update({
+                  whatsapp_confirmed: true,
+                  whatsapp_confirmed_at: new Date().toISOString(),
+                }).eq('id', lastSent.reference_id)
+
+                await fetch(`${process.env.NEXT_PUBLIC_APP_URL ?? ''}/api/whatsapp/send`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    to: stored.phone,
+                    message: 'תודה על האישור! 🎉 מחכים לכם ממש בקרוב. — Sherlocked',
+                    triggerType: 'auto_reply_confirm',
+                    referenceId: lastSent.reference_id,
+                  }),
+                }).catch(() => {})
+              }
+
+              if (isCancel) {
+                await supabase.from('bookings').update({
+                  status: 'pending_cancellation',
+                }).eq('id', lastSent.reference_id)
+
+                await fetch(`${process.env.NEXT_PUBLIC_APP_URL ?? ''}/api/whatsapp/send`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    to: stored.phone,
+                    message: 'קיבלנו את בקשת הביטול שלכם. מנהל ייצור איתכם קשר בהקדם. — Sherlocked',
+                    triggerType: 'auto_reply_cancel',
+                    referenceId: lastSent.reference_id,
+                  }),
+                }).catch(() => {})
+              }
+            }
+
+            if (lastSent.trigger_type === 'payment_request' && isConfirm) {
+              await supabase.from('whatsapp_messages').update({
+                error: 'client_confirmed_payment',
+              }).eq('id', lastSent.id)
+            }
+          }
+
+          continue
         }
 
+        // ── Media path (image/video/sticker/audio/document) ─────────────────
+        // storeIncomingMessage returned null because there is no text body.
+        // Try to store the message as a media entry directly in the inbox.
+        const mediaStored = await storeIncomingMediaToInbox({ supabase, payload: body, message })
+        if (!mediaStored) continue
+
+        processed += 1
         await logWhatsAppEvent(supabase, {
           ...baseLog,
-          event: 'bridge.verify',
+          event: 'media.inbox',
           auth_ok: true,
-          phone: stored.phone,
-          external_message_id: stored.externalMessageId ?? null,
-          status: bridgeRow ? 'processed' : 'failed',
-          ignored_reason: bridgeRow ? null : bridgeError ? bridgeError.message : 'bridge_trigger_did_not_write_inbox_message',
-          response: bridgeRow
-            ? { inbox_message_id: bridgeRow.id, conversation_id: bridgeRow.conversation_id }
-            : { phone: stored.phone, external_message_id: stored.externalMessageId },
+          phone: mediaStored.phone,
+          external_message_id: mediaStored.externalMessageId ?? null,
+          status: 'processed',
+          response: { phone: mediaStored.phone, mediaType: mediaStored.mediaType },
         })
-
-        // --- Smart Reply Logic ---
-        // Find the last outbound message sent to this number
-        const { data: lastSent } = await supabase
-          .from('whatsapp_messages')
-          .select('id, trigger_type, reference_id, status')
-          .eq('to_number', stored.phone)
-          .eq('status', 'sent')
-          .order('sent_at', { ascending: false })
-          .limit(1)
-          .maybeSingle()
-
-        const confirmWords = ['כן', 'yes', 'ok', 'אוקי', 'מאשר', 'מאשרת', '✅', '👍', 'בסדר', 'confirmed']
-        const cancelWords  = ['לא', 'ביטול', 'cancel', 'לבטל', 'מבטל', 'מבטלת', '❌', 'no']
-
-        const isConfirm = confirmWords.some(w => messageText.includes(w))
-        const isCancel  = cancelWords.some(w => messageText.includes(w))
-
-        if (lastSent?.reference_id) {
-          // ── Booking reminder confirmation ────────────────────────────────
-          if (lastSent.trigger_type === 'booking_reminder') {
-            if (isConfirm) {
-              await supabase.from('bookings').update({
-                whatsapp_confirmed: true,
-                whatsapp_confirmed_at: new Date().toISOString(),
-              }).eq('id', lastSent.reference_id)
-
-              await fetch(`${process.env.NEXT_PUBLIC_APP_URL ?? ''}/api/whatsapp/send`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  to: stored.phone,
-                  message: 'תודה על האישור! 🎉 מחכים לכם ממש בקרוב. — Sherlocked',
-                  triggerType: 'auto_reply_confirm',
-                  referenceId: lastSent.reference_id,
-                }),
-              }).catch(() => {})
-            }
-
-            if (isCancel) {
-              await supabase.from('bookings').update({
-                status: 'pending_cancellation',
-              }).eq('id', lastSent.reference_id)
-
-              await fetch(`${process.env.NEXT_PUBLIC_APP_URL ?? ''}/api/whatsapp/send`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  to: stored.phone,
-                  message: 'קיבלנו את בקשת הביטול שלכם. מנהל ייצור איתכם קשר בהקדם. — Sherlocked',
-                  triggerType: 'auto_reply_cancel',
-                  referenceId: lastSent.reference_id,
-                }),
-              }).catch(() => {})
-            }
-          }
-
-          // ── Payment request reply ────────────────────────────────────────
-          if (lastSent.trigger_type === 'payment_request' && isConfirm) {
-            await supabase.from('whatsapp_messages').update({
-              error: 'client_confirmed_payment',
-            }).eq('id', lastSent.id)
-          }
-        }
       }
 
       await logWhatsAppEvent(supabase, {
@@ -419,7 +567,7 @@ export async function POST(req: NextRequest) {
         auth_ok: true,
         status: processed > 0 ? 'processed' : 'ignored',
         processed_count: processed,
-        ignored_reason: processed > 0 ? null : 'no_supported_incoming_text_messages',
+        ignored_reason: processed > 0 ? null : 'no_supported_incoming_messages',
         response: { processed, candidates: messages.length },
       })
 
