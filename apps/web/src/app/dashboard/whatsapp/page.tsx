@@ -116,6 +116,7 @@ export default function WhatsAppInboxPage() {
   // is allowed to commit its result. This prevents a slow earlier fetch from
   // overwriting a faster later one (race condition that caused stale sidebar).
   const loadConvsSeqRef = useRef(0)
+  const loadMsgsSeqRef = useRef(0)
 
   const loadConversations = useCallback(async () => {
     if (!user) return
@@ -136,10 +137,12 @@ export default function WhatsAppInboxPage() {
   }, [user])
 
   const loadMessages = useCallback(async (conversationId: string) => {
+    const seq = ++loadMsgsSeqRef.current
     setLoadingMessages(true)
     setError(null)
     try {
       const data = await apiFetch<InboxMessage[]>(`/whatsapp/inbox/conversations/${conversationId}/messages`)
+      if (seq !== loadMsgsSeqRef.current) return
       const sorted = [...data].sort((a, b) => {
         const aTime = new Date(a.received_at ?? a.sent_at ?? a.created_at).getTime()
         const bTime = new Date(b.received_at ?? b.sent_at ?? b.created_at).getTime()
@@ -152,9 +155,10 @@ export default function WhatsAppInboxPage() {
         ),
       )
     } catch (err) {
+      if (seq !== loadMsgsSeqRef.current) return
       setError(err instanceof Error ? err.message : 'שגיאה בטעינת הודעות')
     } finally {
-      setLoadingMessages(false)
+      if (seq === loadMsgsSeqRef.current) setLoadingMessages(false)
     }
   }, [])
 

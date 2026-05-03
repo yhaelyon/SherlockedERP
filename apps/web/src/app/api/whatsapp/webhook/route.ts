@@ -104,11 +104,6 @@ function messageCandidates(payload: Record<string, unknown>): Record<string, unk
   const messages = dataRecord.messages
   if (Array.isArray(messages)) return messages.map(asRecord)
 
-  const message = dataRecord.message
-  if (message && typeof message === 'object' && !('conversation' in asRecord(message))) {
-    return [asRecord(message)]
-  }
-
   if (dataRecord.key || dataRecord.message) return [dataRecord]
   if (payload.key || payload.message) return [payload]
 
