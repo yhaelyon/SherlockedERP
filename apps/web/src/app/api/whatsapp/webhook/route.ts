@@ -308,7 +308,8 @@ export async function POST(req: NextRequest) {
         const messageText = stored.body.toLowerCase()
 
         // Verify the bridge trigger wrote to whatsapp_inbox_messages
-        let bridgeRow: { id: string; conversation_id: string } | null = null
+        type BridgeRow = { id: string; conversation_id: string }
+        let bridgeRow: BridgeRow | null = null
         let bridgeError: { message: string } | null = null
 
         if (stored.externalMessageId) {
@@ -318,7 +319,7 @@ export async function POST(req: NextRequest) {
             .eq('external_message_id', stored.externalMessageId)
             .eq('direction', 'inbound')
             .maybeSingle()
-          bridgeRow = result.data as typeof bridgeRow
+          bridgeRow = result.data as BridgeRow | null
           bridgeError = result.error
         } else {
           const result = await supabase
@@ -329,7 +330,7 @@ export async function POST(req: NextRequest) {
             .order('created_at', { ascending: false })
             .limit(1)
             .maybeSingle()
-          bridgeRow = result.data as typeof bridgeRow
+          bridgeRow = result.data as BridgeRow | null
           bridgeError = result.error
         }
 
