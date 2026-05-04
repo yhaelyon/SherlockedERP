@@ -237,16 +237,18 @@ export default function WhatsAppInboxPage() {
 
   const sendText = async (body: string) => {
     if (!selectedId) return
+    const sentConvId = selectedId
     setSending(true)
     setError(null)
     try {
-      const sent = await apiFetch<InboxMessage>(`/whatsapp/inbox/conversations/${selectedId}/messages/text`, {
+      const sent = await apiFetch<InboxMessage>(`/whatsapp/inbox/conversations/${sentConvId}/messages/text`, {
         method: 'POST',
         body: JSON.stringify({ body }),
       })
-      // Merge by id: the realtime INSERT may have already added the pending version;
-      // replace it rather than appending a duplicate.
+      // Only merge into state if user is still viewing this conversation.
+      // If they switched away, loadMessages will fetch the correct state on return.
       setMessages((prev) => {
+        if (selectedIdRef.current !== sentConvId) return prev
         const idx = prev.findIndex((m) => m.id === sent.id)
         if (idx !== -1) {
           const next = prev.slice()
@@ -265,14 +267,16 @@ export default function WhatsAppInboxPage() {
 
   const sendImage = async (mediaUrl: string, mimeType: string, fileName: string, caption?: string) => {
     if (!selectedId) return
+    const sentConvId = selectedId
     setSending(true)
     setError(null)
     try {
-      const sent = await apiFetch<InboxMessage>(`/whatsapp/inbox/conversations/${selectedId}/messages/image`, {
+      const sent = await apiFetch<InboxMessage>(`/whatsapp/inbox/conversations/${sentConvId}/messages/image`, {
         method: 'POST',
         body: JSON.stringify({ mediaUrl, mimeType, fileName, caption }),
       })
       setMessages((prev) => {
+        if (selectedIdRef.current !== sentConvId) return prev
         const idx = prev.findIndex((m) => m.id === sent.id)
         if (idx !== -1) {
           const next = prev.slice()
@@ -531,6 +535,9 @@ function MessageBubble({ message }: { message: InboxMessage }) {
             alt=""
             className="mb-2 max-h-72 w-full rounded-md object-cover"
           />
+        )}
+        {message.message_type === 'image' && !message.media_url && !message.body && (
+          <div className="mb-1 text-xs opacity-60">[תמונה]</div>
         )}
         {message.body && <div className="whitespace-pre-wrap break-words" dir="auto">{message.body}</div>}
         <div className="mt-1 flex items-center justify-end gap-2 text-[11px] opacity-70">

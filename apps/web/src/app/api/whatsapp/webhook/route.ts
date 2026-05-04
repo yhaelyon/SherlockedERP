@@ -281,6 +281,14 @@ async function storeIncomingMediaToInbox(params: {
     conversationId = newConv.id
   }
 
+  // Map detected media type to the DB-allowed values (TEXT CHECK constraint).
+  // image/video/sticker have a jpegThumbnail and render as an image bubble.
+  // audio/document have no thumbnail; store as 'unknown' so the UI shows a
+  // generic placeholder rather than an empty bubble.
+  const dbMessageType = (mediaType === 'image' || mediaType === 'video' || mediaType === 'sticker')
+    ? 'image'
+    : 'unknown'
+
   const { error: msgError } = await params.supabase
     .from('whatsapp_inbox_messages')
     .insert({
@@ -289,7 +297,7 @@ async function storeIncomingMediaToInbox(params: {
       external_message_id: externalMessageId,
       direction: 'inbound',
       from_me: false,
-      message_type: 'image',
+      message_type: dbMessageType,
       body: caption ?? null,
       media_url: thumbnailUrl,
       media_mime_type: mimeType,
