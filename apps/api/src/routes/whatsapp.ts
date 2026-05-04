@@ -344,6 +344,40 @@ async function persistWebhookMessage(parsed: ParsedWebhookMessage) {
     pushName: parsed.pushName,
   })
 
+  if (!existingMessageId && parsed.direction === 'outbound' && parsed.externalMessageId) {
+    const pendingQuery = supabase
+      .from('whatsapp_inbox_messages')
+      .select('id')
+      .eq('conversation_id', conversation.id)
+      .eq('direction', 'outbound')
+      .eq('status', 'pending')
+      .is('external_message_id', null)
+      .gte('created_at', new Date(Date.now() - 15 * 60 * 1000).toISOString())
+      .order('created_at', { ascending: false })
+      .limit(1)
+
+    const { data: pending } = parsed.body
+      ? await pendingQuery.eq('body', parsed.body).maybeSingle()
+      : await pendingQuery.maybeSingle()
+
+    if (pending) {
+      await supabase
+        .from('whatsapp_inbox_messages')
+        .update({
+          external_message_id: parsed.externalMessageId,
+          status: 'sent',
+          raw_payload: parsed.raw,
+          body: parsed.body,
+          media_url: parsed.mediaUrl,
+          media_mime_type: parsed.mediaMimeType,
+        })
+        .eq('id', (pending as { id: string }).id)
+
+      await updateConversationAfterMessage({ conversation, parsed, isNewMessage: false })
+      return
+    }
+  }
+
   if (existingMessageId) {
     await supabase
       .from('whatsapp_inbox_messages')
@@ -727,7 +761,7 @@ export async function whatsappRoutes(app: FastifyInstance) {
       return reply.send({ ok: true })
     }
 
-    if (event === 'messages.upsert' || event === 'MESSAGES_UPSERT' || event === 'messages.update') {
+    if (event === 'messages.upsert' || event === 'MESSAGES_UPSERT' || event === 'messages.update' || event === 'send.message') {
       const parsed = messageCandidates(payload)
         .map((message) => parseWebhookMessage(payload, message))
         .filter((message): message is ParsedWebhookMessage => Boolean(message))

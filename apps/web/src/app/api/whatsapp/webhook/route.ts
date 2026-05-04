@@ -311,6 +311,140 @@ async function storeIncomingMediaToInbox(params: {
   return { phone, externalMessageId, mediaType }
 }
 
+async function storeOutboundTextToInbox(params: {
+  supabase: ReturnType<typeof getAdminClient>
+  payload: Record<string, unknown>
+  message: Record<string, unknown>
+}): Promise<{ phone: string; externalMessageId: string | null; body: string } | null> {
+  const key = asRecord(params.message.key)
+  if (key.fromMe !== true && params.message.fromMe !== true) return null
+
+  const remoteJid = pickString(key.remoteJid, params.message.remoteJid, params.message.chatId)
+  if (isIgnoredRemoteJid(remoteJid)) return null
+
+  const phone = normalizePhone(remoteJid ?? '')
+  const body = textFromMessage(params.message)?.trim()
+  if (!phone || !body) return null
+
+  const instanceId = pickString(params.payload.instance, params.message.instance, asRecord(params.payload.data).instance)
+    ?? process.env.EVOLUTION_INSTANCE_NAME
+    ?? 'sherlocked-main'
+  const externalMessageId = pickString(key.id, params.message.id, params.message.messageId)
+  const occurredAt = timestampToIso(params.message.messageTimestamp ?? params.message.timestamp ?? asRecord(params.payload.data).date_time)
+
+  const { data: existingMessage } = externalMessageId
+    ? await params.supabase
+      .from('whatsapp_inbox_messages')
+      .select('id, conversation_id')
+      .eq('instance_id', instanceId)
+      .eq('external_message_id', externalMessageId)
+      .maybeSingle()
+    : { data: null }
+
+  const { data: existingConv } = await params.supabase
+    .from('whatsapp_inbox_conversations')
+    .select('id, unread_count, display_name')
+    .eq('phone', phone)
+    .order('last_message_at', { ascending: false, nullsFirst: false })
+    .limit(1)
+    .maybeSingle()
+
+  let conversationId = existingMessage?.conversation_id as string | undefined
+
+  if (!conversationId && existingConv?.id) {
+    conversationId = existingConv.id
+  }
+
+  if (!conversationId) {
+    const { data: newConv, error: convError } = await params.supabase
+      .from('whatsapp_inbox_conversations')
+      .insert({
+        instance_id: instanceId,
+        remote_jid: `${phone}@s.whatsapp.net`,
+        phone,
+        raw_phone: phone,
+        display_name: phone,
+        last_message_preview: body.slice(0, 180),
+        last_message_at: occurredAt,
+        unread_count: 0,
+        status: 'open',
+        created_at: occurredAt,
+        updated_at: new Date().toISOString(),
+      })
+      .select('id')
+      .single()
+    if (convError || !newConv) return null
+    conversationId = newConv.id
+  }
+
+  if (existingMessage?.id) {
+    await params.supabase
+      .from('whatsapp_inbox_messages')
+      .update({
+        status: 'sent',
+        raw_payload: params.message,
+        body,
+        sent_at: occurredAt,
+      })
+      .eq('id', existingMessage.id)
+  } else {
+    const { data: pending } = await params.supabase
+      .from('whatsapp_inbox_messages')
+      .select('id')
+      .eq('conversation_id', conversationId)
+      .eq('direction', 'outbound')
+      .eq('status', 'pending')
+      .is('external_message_id', null)
+      .eq('body', body)
+      .gte('created_at', new Date(Date.now() - 15 * 60 * 1000).toISOString())
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (pending?.id) {
+      await params.supabase
+        .from('whatsapp_inbox_messages')
+        .update({
+          external_message_id: externalMessageId,
+          status: 'sent',
+          raw_payload: params.message,
+          sent_at: occurredAt,
+        })
+        .eq('id', pending.id)
+    } else {
+      const { error: msgError } = await params.supabase
+        .from('whatsapp_inbox_messages')
+        .insert({
+          conversation_id: conversationId,
+          instance_id: instanceId,
+          external_message_id: externalMessageId,
+          direction: 'outbound',
+          from_me: true,
+          message_type: 'text',
+          body,
+          status: 'sent',
+          raw_payload: params.message,
+          sent_at: occurredAt,
+          created_at: occurredAt,
+        })
+
+      if (msgError && !msgError.message.includes('duplicate')) throw msgError
+    }
+  }
+
+  await params.supabase
+    .from('whatsapp_inbox_conversations')
+    .update({
+      last_message_preview: body.slice(0, 180),
+      last_message_at: occurredAt,
+      unread_count: existingConv?.unread_count ?? 0,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', conversationId)
+
+  return { phone, externalMessageId, body }
+}
+
 function firstMessageLogDetails(payload: Record<string, unknown>) {
   const message = messageCandidates(payload)[0]
   const key = asRecord(message?.key)
@@ -429,12 +563,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ received: true, processed: base64 ? 1 : 0 })
     }
 
-    // ─── MESSAGES_UPSERT (incoming client messages) ────────────────────────
-    if (event === 'messages.upsert' || event === 'MESSAGES_UPSERT') {
+    // ─── MESSAGES_UPSERT / SEND.MESSAGE ────────────────────────────────────
+    if (event === 'messages.upsert' || event === 'MESSAGES_UPSERT' || event === 'send.message') {
       const messages = messageCandidates(body)
       let processed = 0
 
       for (const message of messages) {
+        if (event === 'send.message') {
+          const outboundStored = await storeOutboundTextToInbox({ supabase, payload: body, message })
+          if (outboundStored) {
+            processed += 1
+            continue
+          }
+        }
+
         // ── Text path (goes via whatsapp_messages → bridge trigger) ─────────
         const stored = await storeIncomingMessage({ supabase, payload: body, message })
         if (stored) {
