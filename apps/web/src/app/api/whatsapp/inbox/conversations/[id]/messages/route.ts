@@ -13,7 +13,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     .from('whatsapp_inbox_messages')
     .select('*')
     .eq('conversation_id', params.id)
-    .order('created_at', { ascending: true })
+    .order('created_at', { ascending: false })
     .limit(500)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

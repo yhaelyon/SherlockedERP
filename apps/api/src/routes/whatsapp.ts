@@ -488,7 +488,7 @@ export async function whatsappRoutes(app: FastifyInstance) {
       .from('whatsapp_inbox_messages')
       .select('*')
       .eq('conversation_id', id)
-      .order('created_at', { ascending: true })
+      .order('created_at', { ascending: false })
       .limit(500)
 
     if (error) return reply.status(500).send({ error: error.message })

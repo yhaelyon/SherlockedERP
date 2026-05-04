@@ -113,7 +113,7 @@ function mergeMessages(current: InboxMessage[], incoming: InboxMessage[]): Inbox
 export default function WhatsAppInboxPage() {
   const { user, loading, can } = useAuth()
   const [conversations, setConversations] = useState<Conversation[]>([])
-  const [messages, setMessages] = useState<InboxMessage[]>([])
+  const [messagesByConversation, setMessagesByConversation] = useState<Record<string, InboxMessage[]>>({})
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [loadingConversations, setLoadingConversations] = useState(false)
   const [loadingMessages, setLoadingMessages] = useState(false)
@@ -124,13 +124,13 @@ export default function WhatsAppInboxPage() {
     () => conversations.find((conversation) => conversation.id === selectedId) ?? null,
     [conversations, selectedId],
   )
+  const selectedMessages = selectedId ? messagesByConversation[selectedId] ?? [] : []
 
   // Monotonically-increasing sequence number: only the latest in-flight call
   // is allowed to commit its result. This prevents a slow earlier fetch from
   // overwriting a faster later one (race condition that caused stale sidebar).
   const loadConvsSeqRef = useRef(0)
-  const loadMsgsSeqRef = useRef(0)
-  const selectedIdRef = useRef<string | null>(null)
+  const loadMsgsSeqRef = useRef<Record<string, number>>({})
 
   const loadConversations = useCallback(async () => {
     if (!user) return
@@ -151,29 +151,27 @@ export default function WhatsAppInboxPage() {
   }, [user])
 
   const loadMessages = useCallback(async (conversationId: string) => {
-    const seq = ++loadMsgsSeqRef.current
+    const seq = (loadMsgsSeqRef.current[conversationId] ?? 0) + 1
+    loadMsgsSeqRef.current[conversationId] = seq
     setLoadingMessages(true)
     setError(null)
     try {
       const data = await apiFetch<InboxMessage[]>(`/whatsapp/inbox/conversations/${conversationId}/messages`)
-      if (seq !== loadMsgsSeqRef.current) return
-      if (selectedIdRef.current !== conversationId) return
-      setMessages((prev) =>
-        mergeMessages(
-          prev.filter((message) => message.conversation_id === conversationId),
-          data,
-        ),
-      )
+      if (seq !== loadMsgsSeqRef.current[conversationId]) return
+      setMessagesByConversation((prev) => ({
+        ...prev,
+        [conversationId]: mergeMessages(prev[conversationId] ?? [], data),
+      }))
       setConversations((prev) =>
         prev.map((conversation) =>
           conversation.id === conversationId ? { ...conversation, unread_count: 0 } : conversation,
         ),
       )
     } catch (err) {
-      if (seq !== loadMsgsSeqRef.current) return
+      if (seq !== loadMsgsSeqRef.current[conversationId]) return
       setError(err instanceof Error ? err.message : 'שגיאה בטעינת הודעות')
     } finally {
-      if (seq === loadMsgsSeqRef.current) setLoadingMessages(false)
+      if (seq === loadMsgsSeqRef.current[conversationId]) setLoadingMessages(false)
     }
   }, [])
 
@@ -186,12 +184,6 @@ export default function WhatsAppInboxPage() {
   useEffect(() => {
     if (selectedId) loadMessages(selectedId)
   }, [loadMessages, selectedId])
-
-  // Keep a ref so the realtime handler always reads the current selectedId
-  // without the channel having to re-subscribe on every conversation switch.
-  useEffect(() => {
-    selectedIdRef.current = selectedId
-  }, [selectedId])
 
   useEffect(() => {
     if (!user || !can('whatsapp_inbox')) return
@@ -210,14 +202,19 @@ export default function WhatsAppInboxPage() {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'whatsapp_inbox_messages' },
         (payload) => {
-          const currentId = selectedIdRef.current
           const eventType = payload.eventType as 'INSERT' | 'UPDATE' | 'DELETE'
           const newRow = payload.new as InboxMessage | null
           const oldRow = payload.old as Partial<InboxMessage> | null
 
           if (eventType === 'DELETE') {
             const deletedId = oldRow?.id
-            if (deletedId) setMessages((prev) => prev.filter((m) => m.id !== deletedId))
+            const deletedConversationId = oldRow?.conversation_id
+            if (deletedId && deletedConversationId) {
+              setMessagesByConversation((prev) => ({
+                ...prev,
+                [deletedConversationId]: (prev[deletedConversationId] ?? []).filter((m) => m.id !== deletedId),
+              }))
+            }
             loadConversations()
             return
           }
@@ -227,12 +224,16 @@ export default function WhatsAppInboxPage() {
           // Sidebar (preview/unread) always cares
           loadConversations()
 
-          if (newRow.conversation_id !== currentId) return
-
           if (eventType === 'INSERT') {
-            setMessages((prev) => mergeMessages(prev, [newRow]))
+            setMessagesByConversation((prev) => ({
+              ...prev,
+              [newRow.conversation_id]: mergeMessages(prev[newRow.conversation_id] ?? [], [newRow]),
+            }))
           } else if (eventType === 'UPDATE') {
-            setMessages((prev) => mergeMessages(prev, [newRow]))
+            setMessagesByConversation((prev) => ({
+              ...prev,
+              [newRow.conversation_id]: mergeMessages(prev[newRow.conversation_id] ?? [], [newRow]),
+            }))
           }
         },
       )
@@ -253,16 +254,14 @@ export default function WhatsAppInboxPage() {
         method: 'POST',
         body: JSON.stringify({ body }),
       })
-      // Only merge into state if user is still viewing this conversation.
-      // If they switched away, loadMessages will fetch the correct state on return.
-      setMessages((prev) => {
-        if (selectedIdRef.current !== sentConvId) return prev
-        return mergeMessages(prev, [sent])
+      setMessagesByConversation((prev) => {
+        return {
+          ...prev,
+          [sentConvId]: mergeMessages(prev[sentConvId] ?? [], [sent]),
+        }
       })
       await loadConversations()
-      if (selectedIdRef.current === sentConvId) {
-        await loadMessages(sentConvId)
-      }
+      await loadMessages(sentConvId)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'שליחת הודעה נכשלה')
     } finally {
@@ -280,15 +279,11 @@ export default function WhatsAppInboxPage() {
         method: 'POST',
         body: JSON.stringify({ mediaUrl, mimeType, fileName, caption }),
       })
-      setMessages((prev) => {
-        if (selectedIdRef.current !== sentConvId) return prev
-        const idx = prev.findIndex((m) => m.id === sent.id)
-        if (idx !== -1) {
-          const next = prev.slice()
-          next[idx] = sent
-          return next
+      setMessagesByConversation((prev) => {
+        return {
+          ...prev,
+          [sentConvId]: mergeMessages(prev[sentConvId] ?? [], [sent]),
         }
-        return [...prev, sent]
       })
       await loadConversations()
     } catch (err) {
@@ -347,7 +342,7 @@ export default function WhatsAppInboxPage() {
         />
         <ChatView
           conversation={selectedConversation}
-          messages={messages}
+          messages={selectedMessages}
           loading={loadingMessages}
           sending={sending}
           onSendText={sendText}
